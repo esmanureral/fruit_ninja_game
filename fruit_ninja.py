@@ -353,16 +353,28 @@ class FruitNinja:
         self.life_loss_index: Optional[int] = None
         
         self.spawn_timer = 0
-        self.spawn_interval = 60  # Frames between spawns
+        self.spawn_interval = 60  # Frames between spawns (will be set by mode)
         self.bomb_spawn_timer = 0
-        self.bomb_spawn_interval = 300  # Bomb spawns less frequently
+        self.bomb_spawn_interval = 300  # Bomb spawns less frequently (will be set by mode)
+        
+        # Difficulty parameters (will be set by game mode)
+        self.fruit_velocity_min = -16  # Minimum upward velocity
+        self.fruit_velocity_max = -11  # Maximum upward velocity
+        self.fruit_horizontal_velocity = 6  # Horizontal velocity range
+        self.bomb_velocity_min = -10
+        self.bomb_velocity_max = -8
+        self.spawn_acceleration = 1  # How much spawn interval decreases over time
+        self.bomb_spawn_acceleration = 5  # How much bomb spawn interval decreases
         
         # Load settings (player name, sound, mode)
         self.player_name = "Player"
         self.music_enabled = True
         self.sfx_enabled = True
-        self.game_mode = "Classic"  # Classic, Zen, Arcade
+        self.game_mode = "Orta"  # Kolay, Orta, Zor
         self.load_settings()
+        
+        # Apply difficulty based on game mode
+        self.apply_game_mode_difficulty()
         
         # Load fruit images
         self.fruit_images = self.load_fruit_images()
@@ -695,6 +707,44 @@ class FruitNinja:
         except Exception as e:
             print(f"⚠ Ayarlar yazılamadı: {e}")
     
+    def apply_game_mode_difficulty(self):
+        """Apply difficulty settings based on selected game mode."""
+        mode = self.game_mode
+        
+        if mode == "Kolay":
+            # Kolay Mode: Yavaş ve bombasız
+            self.spawn_interval = 90  # Çok yavaş spawn rate
+            self.bomb_spawn_interval = 9999  # Hiç bomba yok
+            self.fruit_velocity_min = -12  # Yavaş yukarı hız
+            self.fruit_velocity_max = -9
+            self.fruit_horizontal_velocity = 3  # Az yatay hareket
+            self.bomb_velocity_min = -8
+            self.bomb_velocity_max = -6
+            self.spawn_acceleration = 0.3  # Çok yavaş hızlanma
+            self.bomb_spawn_acceleration = 0  # Bomba hızlanması yok
+        elif mode == "Zor":
+            # Zor Mode: Çok bombalı ve hızlı
+            self.spawn_interval = 35  # Çok hızlı spawn rate
+            self.bomb_spawn_interval = 150  # Çok sık bomba
+            self.fruit_velocity_min = -22  # Çok hızlı yukarı hız
+            self.fruit_velocity_max = -15
+            self.fruit_horizontal_velocity = 9  # Çok fazla yatay hareket
+            self.bomb_velocity_min = -13
+            self.bomb_velocity_max = -10
+            self.spawn_acceleration = 2.0  # Çok hızlı hızlanma
+            self.bomb_spawn_acceleration = 10  # Çok hızlı bomba hızlanması
+        else:  # Orta (default)
+            # Orta Mode: Biraz daha hızlı ve bombalı
+            self.spawn_interval = 55  # Orta spawn rate
+            self.bomb_spawn_interval = 280  # Orta bomba sıklığı
+            self.fruit_velocity_min = -18  # Biraz hızlı yukarı hız
+            self.fruit_velocity_max = -12
+            self.fruit_horizontal_velocity = 7  # Orta yatay hareket
+            self.bomb_velocity_min = -11
+            self.bomb_velocity_max = -9
+            self.spawn_acceleration = 1.2  # Orta hızlanma
+            self.bomb_spawn_acceleration = 6  # Orta bomba hızlanması
+    
     def save_best_score(self):
         """Save best score to file"""
         try:
@@ -731,7 +781,7 @@ class FruitNinja:
         x = random.randint(80, SCREEN_WIDTH - 80)
         y = GAME_AREA_Y + GAME_AREA_HEIGHT + 30  # ekranın biraz altı
         vx = random.uniform(-4, 4)
-        vy = random.uniform(-10, -8)  # yukarı doğru
+        vy = random.uniform(self.bomb_velocity_min, self.bomb_velocity_max)  # Mode-based velocity
         
         bomb = Bomb(x, y, image=self.bomb_image)
         bomb.vx = vx
@@ -744,9 +794,9 @@ class FruitNinja:
         """Spawn a new fruit from bottom going upward (like Fruit Ninja)."""
         x = random.randint(80, SCREEN_WIDTH - 80)
         y = GAME_AREA_Y + GAME_AREA_HEIGHT + 30  # ekranın biraz altı
-        # Parabolik fırlatma: yukarı doğru güçlü hız, hafif yatay sapma
-        vx = random.uniform(-6, 6)
-        vy = random.uniform(-16, -11)  # daha yüksek zıplasın
+        # Parabolik fırlatma: yukarı doğru güçlü hız, hafif yatay sapma (mode-based)
+        vx = random.uniform(-self.fruit_horizontal_velocity, self.fruit_horizontal_velocity)
+        vy = random.uniform(self.fruit_velocity_min, self.fruit_velocity_max)  # Mode-based velocity
         
         # Get fruit type and images
         fruit_type = self.get_random_fruit_type()
@@ -949,12 +999,18 @@ class FruitNinja:
         self.sliced_fruits = []
         self.particles = []
         self.score = 0
+        self.lives = MAX_LIVES
         self.game_over = False
         self.show_title_screen = False
         self.swipe_path = []
         self.spawn_timer = 0
-        self.spawn_interval = 60
         self.bomb_spawn_timer = 0
+        self.combo = 0
+        self.combo_timer = 0
+        self.life_loss_index = None
+        self.life_loss_timer = 0
+        # Apply difficulty settings based on current game mode
+        self.apply_game_mode_difficulty()
     
     def check_title_slice(self):
         """Check if title screen text is sliced"""
@@ -1047,15 +1103,19 @@ class FruitNinja:
         if self.spawn_timer >= self.spawn_interval:
             self.spawn_fruit()
             self.spawn_timer = 0
-            self.spawn_interval = max(30, self.spawn_interval - 1)  # Increase spawn rate over time
+            # Increase spawn rate over time (mode-based acceleration)
+            min_interval = 20 if self.game_mode == "Zor" else 30
+            self.spawn_interval = max(min_interval, self.spawn_interval - self.spawn_acceleration)
         
-        # Spawn bombs (less frequently)
-        self.bomb_spawn_timer += 1
-        if self.bomb_spawn_timer >= self.bomb_spawn_interval:
-            self.spawn_bomb()
-            self.bomb_spawn_timer = 0
-            # Make bombs spawn more frequently as score increases
-            self.bomb_spawn_interval = max(180, self.bomb_spawn_interval - 5)
+        # Spawn bombs (less frequently, mode-based)
+        if self.game_mode != "Kolay":  # Kolay modda bomba yok
+            self.bomb_spawn_timer += 1
+            if self.bomb_spawn_timer >= self.bomb_spawn_interval:
+                self.spawn_bomb()
+                self.bomb_spawn_timer = 0
+                # Make bombs spawn more frequently as score increases (mode-based)
+                min_bomb_interval = 100 if self.game_mode == "Zor" else 180
+                self.bomb_spawn_interval = max(min_bomb_interval, self.bomb_spawn_interval - self.bomb_spawn_acceleration)
         
         # Update fruits
         fruits_to_remove = []
@@ -1119,21 +1179,29 @@ class FruitNinja:
         pygame.draw.line(self.screen, BLACK, (0, SCREEN_HEIGHT - BOTTOM_BAR_HEIGHT), 
                         (SCREEN_WIDTH, SCREEN_HEIGHT - BOTTOM_BAR_HEIGHT), 2)
         
-        # Draw fruits (only in game area)
+        # Draw fruits (only in game area, don't let them overflow to top bar)
         for fruit in self.fruits:
-            fruit.draw(self.screen)
+            # Only draw if fruit is below the top bar
+            if fruit.y - fruit.radius >= TOP_BAR_HEIGHT:
+                fruit.draw(self.screen)
         
-        # Draw bombs
+        # Draw bombs (only in game area)
         for bomb in self.bombs:
-            bomb.draw(self.screen)
+            # Only draw if bomb is below the top bar
+            if bomb.y - bomb.radius >= TOP_BAR_HEIGHT:
+                bomb.draw(self.screen)
         
-        # Draw particles (behind sliced fruits)
+        # Draw particles (behind sliced fruits, only in game area)
         for particle in self.particles:
-            particle.draw(self.screen)
+            # Only draw if particle is below the top bar
+            if particle.y >= TOP_BAR_HEIGHT:
+                particle.draw(self.screen)
         
-        # Draw sliced fruits (halves flying apart) - on top of particles
+        # Draw sliced fruits (halves flying apart) - on top of particles, only in game area
         for sliced_fruit in self.sliced_fruits:
-            sliced_fruit.draw(self.screen)
+            # Only draw if sliced fruit is below the top bar
+            if sliced_fruit.half1_y - 20 >= TOP_BAR_HEIGHT and sliced_fruit.half2_y - 20 >= TOP_BAR_HEIGHT:
+                sliced_fruit.draw(self.screen)
 
         # If a bomb flash is active, draw it on top of everything and skip UI/game-over for now
         if self.game_over and self.bomb_flash_active and self.bomb_flash_center:
@@ -1155,8 +1223,8 @@ class FruitNinja:
         # Draw UI elements
         self.draw_ui()
         
-        # Draw combo if active
-        if self.combo > 1:
+        # Draw combo only if timer is active (combo is still counting)
+        if self.combo > 1 and self.combo_timer > 0:
             combo_text = self.font_large.render(f"COMBO {self.combo}!", True, YELLOW)
             combo_rect = combo_text.get_rect(center=(SCREEN_WIDTH // 2, 250))
             # Add semi-transparent background for better readability
@@ -1274,30 +1342,94 @@ class FruitNinja:
             )
             rect = img_s.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
             self.screen.blit(img_s, rect)
-        else:
-            # Fallback text "GAME OVER!"
-            game_over_text = self.font_title.render("GAME OVER", True, RED)
-            game_over_rect = game_over_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
-            self.screen.blit(game_over_text, game_over_rect)
+        
+        # Always prepare fallback text (in case image fails to load or for additional text)
+        fallback_text = self.font_title.render("GAME OVER", True, RED)
+        fallback_rect = fallback_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
+        
+        # If no image, show fallback text
+        if not self.game_over_image:
+            self.screen.blit(fallback_text, fallback_rect)
         
         # Restart instruction (small text at bottom)
         restart_text = self.font_small.render("Press SPACE to restart", True, WHITE)
         restart_rect = restart_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 60))
         self.screen.blit(restart_text, restart_rect)
     
+    def draw_star_badge(self, screen, x, y, size, number, color1=(255, 215, 0), color2=(255, 165, 0)):
+        """Draw a star-shaped badge with a number inside"""
+        import math
+        
+        # Create star shape
+        points = []
+        outer_radius = size // 2
+        inner_radius = outer_radius * 0.4
+        
+        for i in range(10):  # 10 points for 5-pointed star
+            angle = math.pi / 2 + (i * math.pi / 5)
+            if i % 2 == 0:
+                radius = outer_radius
+            else:
+                radius = inner_radius
+            px = x + radius * math.cos(angle)
+            py = y + radius * math.sin(angle)
+            points.append((px, py))
+        
+        # Draw star with gradient effect (outer to inner)
+        # Outer glow
+        for i in range(len(points)):
+            pygame.draw.polygon(screen, (255, 255, 200, 50), points, 0)
+        
+        # Main star body
+        pygame.draw.polygon(screen, color1, points, 0)
+        pygame.draw.polygon(screen, color2, points, 2)
+        
+        # Draw number inside
+        number_text = self.font_medium.render(str(number), True, (75, 0, 130))  # Dark purple
+        number_rect = number_text.get_rect(center=(x, y))
+        screen.blit(number_text, number_rect)
+    
+    def draw_gradient_bar(self, screen, x, y, width, height, text, score_value):
+        """Draw a gradient bar with score text"""
+        # Create gradient surface
+        gradient_surface = pygame.Surface((width, height))
+        
+        # Draw gradient (yellow to orange-yellow)
+        for i in range(width):
+            ratio = i / width
+            r = int(255 * (1 - ratio * 0.2))  # 255 to ~204
+            g = int(215 * (1 - ratio * 0.1))  # 215 to ~193
+            b = int(0)
+            color = (r, g, b)
+            pygame.draw.line(gradient_surface, color, (i, 0), (i, height))
+        
+        # Add border/shadow effect
+        pygame.draw.rect(gradient_surface, (200, 150, 0), (0, 0, width, height), 2)
+        
+        screen.blit(gradient_surface, (x, y))
+        
+        # Draw text on bar
+        text_surface = self.font_large.render(f"{text}{score_value:06d}", True, (75, 0, 130))  # Dark purple
+        text_rect = text_surface.get_rect(center=(x + width // 2, y + height // 2))
+        screen.blit(text_surface, text_rect)
+    
     def draw_ui(self):
-        """Draw UI elements on top and bottom bars"""
-        # Draw score on top left (with icon)
-        score_icon_size = 40
-        # Draw simple fruit icon (circle as placeholder)
-        pygame.draw.circle(self.screen, RED, (25, TOP_BAR_HEIGHT // 2), score_icon_size // 2)
+        """Draw UI elements on top and bottom bars with styled score display"""
+        # Position at top-left corner
+        score_section_x = 10
+        score_section_y = 10
         
-        score_text = self.font_large.render(str(self.score), True, BLACK)
-        self.screen.blit(score_text, (65, TOP_BAR_HEIGHT // 2 - score_text.get_height() // 2))
+        # Draw star badge with score inside (always visible)
+        star_size = 50
+        star_x = score_section_x + star_size // 2
+        star_y = score_section_y + star_size // 2
         
-        # Draw best score below
-        best_text = self.font_small.render(f"BEST: {self.best_score}", True, BLACK)
-        self.screen.blit(best_text, (25, TOP_BAR_HEIGHT // 2 + 20))
+        # Show score in star badge
+        self.draw_star_badge(self.screen, star_x, star_y, star_size, self.score)
+        
+        # Draw player name below star (closer to star, right below it)
+        name_text = self.font_small.render(f"{self.player_name}", True, BLACK)
+        self.screen.blit(name_text, (score_section_x, score_section_y + star_size + 5))
         
         # Draw lives on top right
         x_start = SCREEN_WIDTH - 30
@@ -1327,7 +1459,7 @@ class FruitNinja:
         # Decrease life-loss timer
         if self.life_loss_timer > 0:
             self.life_loss_timer -= 1
-    
+
     def run(self):
         while self.running:
             self.handle_events()
@@ -1690,8 +1822,8 @@ class MenuScreen:
         name_text = self.game.player_name
         music_on = self.game.music_enabled
         sfx_on = self.game.sfx_enabled
-        modes = ["Classic", "Zen", "Arcade"]
-        mode_index = modes.index(self.game.game_mode) if self.game.game_mode in modes else 0
+        modes = ["Kolay", "Orta", "Zor"]
+        mode_index = modes.index(self.game.game_mode) if self.game.game_mode in modes else 1  # Default to "Orta"
         active_field = "none"  # "name" for editing
 
         while in_settings:
@@ -1794,6 +1926,9 @@ class MenuScreen:
         self.game.music_enabled = music_on
         self.game.sfx_enabled = sfx_on
         self.game.game_mode = modes[mode_index]
+        # Apply difficulty settings for the new mode
+        if hasattr(self.game, "apply_game_mode_difficulty"):
+            self.game.apply_game_mode_difficulty()
         try:
             self.game.update_background_music()
         except Exception:
@@ -1893,8 +2028,6 @@ class MenuScreen:
             # Stop early if everything is gone
             if not sliced.is_alive() and len(particles) == 0:
                 break
-
-
 
 if __name__ == "__main__":
     while True:
