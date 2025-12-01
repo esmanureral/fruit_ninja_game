@@ -1,0 +1,5 @@
+This file is just a reminder for the developer:
+- Place your sound files (e.g. slice.wav, bomb.wav, game_over.wav, start.wav) into the `sound` folder.
+- The game will automatically load any .wav / .ogg / .mp3 files from that folder and make them available by name (without extension).
+
+

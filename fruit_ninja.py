@@ -5,6 +5,30 @@ import os
 from typing import List, Tuple, Optional
 import sys
 
+# Fruit-specific colors (juice/particle colors)
+FRUIT_COLORS = {
+    "apple": (220, 30, 30),
+    "banana": (245, 215, 70),
+    "orange": (255, 140, 0),
+    "lemon": (245, 230, 80),
+    "watermelon": (235, 35, 60),
+    "pineapple": (250, 200, 70),
+    "kiwi": (110, 180, 60),
+    "pear": (170, 220, 120),
+    "coconut": (230, 230, 220),
+    # Extra names used in images/fruit (aliased to existing fruits)
+    "sandia": (235, 35, 60),   # watermelon alias
+    "basaha": (250, 200, 70),  # pineapple alias
+    "peach": (255, 180, 120),
+}
+
+# Map variant/alias names from images/fruit to canonical fruit types
+FRUIT_ALIASES = {
+    "sandia": "watermelon",
+    # "basaha" kendi tipi olarak kalsın; pineapple ile karışmasın
+    # others map to themselves by default (apple, banana, peach, basaha, etc.)
+}
+
 # Initialize Pygame
 pygame.init()
 
@@ -13,6 +37,7 @@ SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
 FPS = 60
 IMAGES_FOLDER = "images"
+SOUND_FOLDER = "sound"
 FRUIT_SIZE = 80  # Meyve resimlerinin hedef boyutu (piksel)
 FRUIT_MIN_SIZE = 70  # Meyve resimlerinin minimum boyutu (piksel)
 SLICED_FRUIT_SIZE = 90  # Kesilmiş meyve resimlerinin genişliği
@@ -30,6 +55,9 @@ LIGHT_BLUE = (173, 216, 230)  # Açık mavi üst şerit için
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 GREY = (128, 128, 128)
+SWIPE_WATER_EDGE = (10, 80, 150)
+SWIPE_WATER_MID = (80, 180, 255)
+SWIPE_WATER_CORE = (230, 245, 255)
 
 # UI Constants
 TOP_BAR_HEIGHT = 80
@@ -38,15 +66,21 @@ GAME_AREA_Y = TOP_BAR_HEIGHT
 GAME_AREA_HEIGHT = SCREEN_HEIGHT - TOP_BAR_HEIGHT - BOTTOM_BAR_HEIGHT
 MAX_LIVES = 3
 
+def brighten_color(color: Tuple[int, int, int], factor: float = 1.25, offset: int = 20) -> Tuple[int, int, int]:
+    """Return a brighter variant of the given RGB color."""
+    return tuple(max(0, min(255, int(c * factor + offset))) for c in color)
+
 class Fruit:
-    def __init__(self, x, y, fruit_type="apple", image=None, sliced_image=None):
+    def __init__(self, x, y, fruit_type="apple", image=None, sliced_image=None, color=None, half_images=None):
         self.x = x
         self.y = y
         self.fruit_type = fruit_type
         self.image = image
         self.sliced_image = sliced_image
+        # Optional list of two pre-cut half images from images/fruit (e.g. apple-1, apple-2)
+        self.half_images = half_images
         self.radius = 30
-        self.color = RED  # Fallback color if no image
+        self.color = color if color else RED  # Fallback color if no image
         self.vx = random.uniform(-2, 2)
         self.vy = random.uniform(-2, 2)
         self.angle = 0
@@ -98,11 +132,13 @@ class Fruit:
 
 class SlicedFruit:
     """Represents a sliced fruit with two halves that fly apart"""
-    def __init__(self, x, y, fruit_type="apple", sliced_image=None):
+    def __init__(self, x, y, fruit_type="apple", sliced_image=None, half_images=None):
         self.x = x
         self.y = y
         self.fruit_type = fruit_type
         self.sliced_image = sliced_image
+        # Optional list of two separate half images (pre-sliced assets)
+        self.half_images = half_images or []
         self.life = 60  # Frames until removal (artırıldı - daha uzun görünecek)
         
         # Two halves fly in opposite directions
@@ -142,29 +178,36 @@ class SlicedFruit:
         self.life -= 1
         
     def draw(self, screen):
-        if self.sliced_image:
-            # Draw two halves
-            # Split the image in half
+        if self.half_images and len(self.half_images) >= 2:
+            # Use pre-rendered half images from images/fruit (more accurate)
+            left_half_img = self.half_images[0]
+            right_half_img = self.half_images[1]
+
+            rotated_left = pygame.transform.rotate(left_half_img, -self.rotation1)
+            rotated_right = pygame.transform.rotate(right_half_img, -self.rotation2)
+
+            rect1 = rotated_left.get_rect(center=(int(self.half1_x), int(self.half1_y)))
+            rect2 = rotated_right.get_rect(center=(int(self.half2_x), int(self.half2_y)))
+
+            screen.blit(rotated_left, rect1)
+            screen.blit(rotated_right, rect2)
+        elif self.sliced_image:
+            # Backwards compatible path: split a sliced sprite into two halves
             img_width = self.sliced_image.get_width()
             img_height = self.sliced_image.get_height()
-            
-            # Create left and right halves
             try:
                 left_half = self.sliced_image.subsurface((0, 0, img_width // 2, img_height))
                 right_half = self.sliced_image.subsurface((img_width // 2, 0, img_width // 2, img_height))
                 
-                # Rotate halves
                 rotated_left = pygame.transform.rotate(left_half, -self.rotation1)
                 rotated_right = pygame.transform.rotate(right_half, -self.rotation2)
                 
-                # Draw halves
                 rect1 = rotated_left.get_rect(center=(int(self.half1_x), int(self.half1_y)))
                 rect2 = rotated_right.get_rect(center=(int(self.half2_x), int(self.half2_y)))
                 
                 screen.blit(rotated_left, rect1)
                 screen.blit(rotated_right, rect2)
             except Exception as e:
-                # Fallback if slicing fails
                 print(f"Hata sliced resim çizimi: {e}")
                 pygame.draw.circle(screen, RED, (int(self.half1_x), int(self.half1_y)), 15)
                 pygame.draw.circle(screen, RED, (int(self.half2_x), int(self.half2_y)), 15)
@@ -178,7 +221,7 @@ class SlicedFruit:
 
 class Bomb:
     """Bomb that causes game over when sliced"""
-    def __init__(self, x, y):
+    def __init__(self, x, y, image: Optional[pygame.Surface] = None):
         self.x = x
         self.y = y
         self.radius = 30
@@ -187,6 +230,7 @@ class Bomb:
         self.angle = 0
         self.rotation_speed = random.uniform(-5, 5)
         self.pulse_timer = 0  # For pulsing effect
+        self.image = image
         
     def update(self):
         self.x += self.vx
@@ -203,23 +247,30 @@ class Bomb:
         return self.y - self.radius > GAME_AREA_Y + GAME_AREA_HEIGHT + 60
     
     def draw(self, screen):
-        # Pulsing effect
-        pulse = math.sin(self.pulse_timer * 0.2) * 3
-        current_radius = self.radius + int(pulse)
-        
-        # Draw black bomb body
-        pygame.draw.circle(screen, BLACK, (int(self.x), int(self.y)), current_radius)
-        # Draw fuse (red)
-        fuse_length = 8
-        fuse_angle = self.angle * math.pi / 180
-        fuse_x = int(self.x + math.cos(fuse_angle) * current_radius)
-        fuse_y = int(self.y + math.sin(fuse_angle) * current_radius)
-        pygame.draw.circle(screen, RED, (fuse_x, fuse_y), 5)
-        
-        # Draw warning lines
-        for i in range(3):
-            angle = self.angle + i * 120
-            angle_rad = angle * math.pi / 180
+        # Prefer bomb image from assets if available
+        if self.image:
+            pulse = math.sin(self.pulse_timer * 0.2) * 0.1 + 1.0  # hafif nabız
+            base_img = pygame.transform.rotozoom(self.image, -self.angle, pulse)
+            rect = base_img.get_rect(center=(int(self.x), int(self.y)))
+            screen.blit(base_img, rect)
+        else:
+            # Fallback: vector bomb drawing
+            pulse = math.sin(self.pulse_timer * 0.2) * 3
+            current_radius = self.radius + int(pulse)
+            
+            # Draw black bomb body
+            pygame.draw.circle(screen, BLACK, (int(self.x), int(self.y)), current_radius)
+            # Draw fuse (red)
+            fuse_length = 8
+            fuse_angle = self.angle * math.pi / 180
+            fuse_x = int(self.x + math.cos(fuse_angle) * current_radius)
+            fuse_y = int(self.y + math.sin(fuse_angle) * current_radius)
+            pygame.draw.circle(screen, RED, (fuse_x, fuse_y), 5)
+            
+            # Draw warning lines
+            for i in range(3):
+                angle = self.angle + i * 120
+                angle_rad = angle * math.pi / 180
             start_x = int(self.x + math.cos(angle_rad) * (current_radius - 5))
             start_y = int(self.y + math.sin(angle_rad) * (current_radius - 5))
             end_x = int(self.x + math.cos(angle_rad) * (current_radius + 10))
@@ -289,14 +340,50 @@ class FruitNinja:
         self.swipe_path: List[Tuple[int, int]] = []
         self.swiping = False
         self.title_sliced = False
+
+        # Bomb flash (white radial beams) state
+        self.bomb_flash_active = False
+        self.bomb_flash_timer = 0
+        self.bomb_flash_duration = FPS * 0.7  # ~0.7s
+        self.bomb_flash_center: Optional[Tuple[float, float]] = None
+
+        # Life-loss animation state
+        self.life_loss_duration = int(FPS * 0.6)  # ~0.6s anim length
+        self.life_loss_timer = 0
+        self.life_loss_index: Optional[int] = None
         
         self.spawn_timer = 0
         self.spawn_interval = 60  # Frames between spawns
         self.bomb_spawn_timer = 0
         self.bomb_spawn_interval = 300  # Bomb spawns less frequently
         
+        # Load settings (player name, sound, mode)
+        self.player_name = "Player"
+        self.music_enabled = True
+        self.sfx_enabled = True
+        self.game_mode = "Classic"  # Classic, Zen, Arcade
+        self.load_settings()
+        
         # Load fruit images
         self.fruit_images = self.load_fruit_images()
+        # Load sounds
+        self.sounds = self.load_sounds()
+
+        # Optional bomb and game-over images
+        self.bomb_image = None
+        self.game_over_image = None
+        try:
+            bomb_path = os.path.join(IMAGES_FOLDER, "boom.png")
+            if os.path.exists(bomb_path):
+                self.bomb_image = pygame.image.load(bomb_path).convert_alpha()
+        except Exception as e:
+            print(f"⚠ Bomba resmi yüklenemedi: {e}")
+        try:
+            go_path = os.path.join(IMAGES_FOLDER, "game-over.png")
+            if os.path.exists(go_path):
+                self.game_over_image = pygame.image.load(go_path).convert_alpha()
+        except Exception as e:
+            print(f"⚠ Game Over resmi yüklenemedi: {e}")
         
         # Set random seed for consistent wood texture
         random.seed(42)
@@ -325,13 +412,15 @@ class FruitNinja:
             return fruit_images
         
         # Automatically detect all fruit images in the folder
-        # Scan all PNG files
-        all_files = [f for f in os.listdir(IMAGES_FOLDER) if f.lower().endswith('.png')]
+        # First: scan PNG files directly under images (canonical sprites)
+        top_files = [f for f in os.listdir(IMAGES_FOLDER) if f.lower().endswith('.png')]
         
         # Extract fruit types from filenames
-        fruit_type_map = {}  # Maps fruit type to file paths
+        # We store relative paths from IMAGES_FOLDER so that we can also support subfolders
+        fruit_type_map = {}  # Maps fruit type to file paths and variants
         
-        for filename in all_files:
+        for filename in top_files:
+            rel_path = filename  # relative to IMAGES_FOLDER
             name_lower = filename.lower().replace('.png', '')
             
             # Check if it's a sliced image
@@ -342,27 +431,71 @@ class FruitNinja:
                 fruit_type = ''.join([c for c in fruit_type if not c.isdigit()])
                 
                 if fruit_type not in fruit_type_map:
-                    fruit_type_map[fruit_type] = {"whole": None, "sliced": []}
+                    fruit_type_map[fruit_type] = {"whole": None, "whole_variants": [], "sliced": []}
                 
                 # Handle multiple sliced images (like pineapple_sliced1, pineapple_sliced2)
-                fruit_type_map[fruit_type]["sliced"].append(filename)
+                fruit_type_map[fruit_type]["sliced"].append(rel_path)
             else:
                 # This is a whole fruit image
                 fruit_type = name_lower
                 
                 if fruit_type not in fruit_type_map:
-                    fruit_type_map[fruit_type] = {"whole": None, "sliced": []}
+                    fruit_type_map[fruit_type] = {"whole": None, "whole_variants": [], "sliced": []}
                 
-                fruit_type_map[fruit_type]["whole"] = filename
+                # Default whole image and also a variant
+                fruit_type_map[fruit_type]["whole"] = rel_path
+                fruit_type_map[fruit_type]["whole_variants"].append(rel_path)
+        
+        # Second: scan images/fruit subfolder for high-quality variants and halves
+        fruit_subdir = os.path.join(IMAGES_FOLDER, "fruit")
+        if os.path.exists(fruit_subdir):
+            for filename in os.listdir(fruit_subdir):
+                if not filename.lower().endswith(".png"):
+                    continue
+                rel_path = os.path.join("fruit", filename)  # relative to IMAGES_FOLDER
+                name_lower = filename.lower().replace(".png", "")
+                
+                # apple-1 -> apple, sandia-2 -> sandia, etc.
+                parts = name_lower.split("-")
+                base_name = parts[0]
+                suffix = parts[1] if len(parts) > 1 else None
+                # Map aliases (sandia -> watermelon, basaha -> pineapple, ...)
+                fruit_type = FRUIT_ALIASES.get(base_name, base_name)
+                
+                if fruit_type not in fruit_type_map:
+                    fruit_type_map[fruit_type] = {
+                        "whole": None,
+                        "whole_variants": [],
+                        "sliced": [],
+                        "half1": None,
+                        "half2": None,
+                    }
+
+                # Files ending with -1 / -2 are the sliced halves.
+                # Others are high-quality whole variants.
+                if suffix == "1":
+                    fruit_type_map[fruit_type]["half1"] = rel_path
+                elif suffix == "2":
+                    fruit_type_map[fruit_type]["half2"] = rel_path
+                else:
+                    fruit_type_map[fruit_type]["whole_variants"].append(rel_path)
+                    # If no main whole yet, use the first variant
+                    if fruit_type_map[fruit_type]["whole"] is None:
+                        fruit_type_map[fruit_type]["whole"] = rel_path
         
         # Load all detected fruit images
         for fruit_type, files in fruit_type_map.items():
-            whole_img = None
+            whole_imgs: List[pygame.Surface] = []
             sliced_img = None
+            half_imgs: List[pygame.Surface] = []
             
-            # Load whole fruit image
-            if files["whole"]:
-                whole_path = os.path.join(IMAGES_FOLDER, files["whole"])
+            # Load all whole fruit variants (top-level + images/fruit)
+            whole_paths = files.get("whole_variants") or []
+            if not whole_paths and files.get("whole"):
+                whole_paths = [files["whole"]]
+            
+            for rel_path in whole_paths:
+                whole_path = os.path.join(IMAGES_FOLDER, rel_path)
                 try:
                     loaded_img = pygame.image.load(whole_path).convert_alpha()
                     original_width, original_height = loaded_img.get_size()
@@ -381,10 +514,11 @@ class FruitNinja:
                         scale = FRUIT_MIN_SIZE / max_dimension
                         new_width = int(original_width * scale)
                         new_height = int(original_height * scale)
-                        print(f"  ⚠ {fruit_type} çok küçüktü, minimum boyuta ölçeklendi")
+                        print(f"  ⚠ {fruit_type} ({rel_path}) çok küçüktü, minimum boyuta ölçeklendi")
                     
                     whole_img = pygame.transform.smoothscale(loaded_img, (new_width, new_height))
-                    print(f"✓ Yüklendi: {fruit_type} ({files['whole']}) {original_width}x{original_height} -> {new_width}x{new_height}")
+                    whole_imgs.append(whole_img)
+                    print(f"✓ Yüklendi: {fruit_type} whole ({rel_path}) {original_width}x{original_height} -> {new_width}x{new_height}")
                 except Exception as e:
                     print(f"✗ Hata yükleme {whole_path}: {e}")
             
@@ -404,17 +538,38 @@ class FruitNinja:
                 except Exception as e:
                     print(f"✗ Hata yükleme {sliced_path}: {e}")
             
-            # Only add if we have BOTH whole and sliced images
-            if whole_img and sliced_img:
+            # Load sliced halves from images/fruit (e.g. apple-1.png, apple-2.png)
+            for key in ("half1", "half2"):
+                rel = files.get(key)
+                if not rel:
+                    continue
+                half_path = os.path.join(IMAGES_FOLDER, rel)
+                try:
+                    loaded_img = pygame.image.load(half_path).convert_alpha()
+                    original_width, original_height = loaded_img.get_size()
+                    # Scale halves similarly to sliced images
+                    max_dimension = max(original_width, original_height)
+                    scale = SLICED_FRUIT_SIZE / max_dimension
+                    new_width = int(original_width * scale)
+                    new_height = int(original_height * scale)
+                    half_img = pygame.transform.smoothscale(loaded_img, (new_width, new_height))
+                    half_imgs.append(half_img)
+                    print(f"✓ Yüklendi: {fruit_type} half ({rel}) {original_width}x{original_height} -> {new_width}x{new_height}")
+                except Exception as e:
+                    print(f"✗ Hata yükleme {half_path}: {e}")
+
+            # Only add if we have whole images and at least one way to render sliced state
+            # (either a full sliced sprite or two half images)
+            if whole_imgs and (sliced_img or half_imgs):
                 fruit_images[fruit_type] = {
-                    "whole": whole_img,
-                    "sliced": sliced_img
+                    "whole": whole_imgs[0],          # primary image
+                    "whole_variants": whole_imgs,    # all variants
+                    "sliced": sliced_img,
+                    "halves": half_imgs if half_imgs else None,
                 }
-                print(f"  ✓ {fruit_type} oyuna eklendi (hem tam hem kesilmiş resmi var)")
-            elif whole_img:
-                print(f"  ⚠ {fruit_type} atlandı (kesilmiş resmi yok)")
-            elif sliced_img:
-                print(f"  ⚠ {fruit_type} atlandı (tam resmi yok)")
+                print(f"  ✓ {fruit_type} oyuna eklendi (gerçek meyve görselleri yüklendi)")
+            elif whole_imgs:
+                print(f"  ⚠ {fruit_type} atlandı (kesilmiş veya yarım görseli yok)")
         
         print(f"\n🎮 Toplam {len(fruit_images)} meyve tipi yüklendi: {', '.join(fruit_images.keys())}")
         
@@ -422,6 +577,51 @@ class FruitNinja:
             print(f"⚠ '{IMAGES_FOLDER}' klasöründe meyve resmi bulunamadı. Renkli daireler kullanılacak.")
         
         return fruit_images
+
+    def load_sounds(self):
+        """Load all sound effects from sound folder (slice, bomb, etc.)"""
+        sounds = {}
+        # Initialize mixer if possible
+        try:
+            if not pygame.mixer.get_init():
+                pygame.mixer.init()
+        except Exception as e:
+            print(f"⚠ Ses sistemi başlatılamadı: {e}")
+            return sounds
+
+        if not os.path.exists(SOUND_FOLDER):
+            print(f"'{SOUND_FOLDER}' klasörü bulunamadı. Sesler kapalı olacak.")
+            return sounds
+
+        for filename in os.listdir(SOUND_FOLDER):
+            name_lower = filename.lower()
+            if not name_lower.endswith((".wav", ".ogg", ".mp3")):
+                continue
+            sound_name = os.path.splitext(name_lower)[0]  # e.g. slice.wav -> slice
+            path = os.path.join(SOUND_FOLDER, filename)
+            try:
+                snd = pygame.mixer.Sound(path)
+                snd.set_volume(0.6)
+                sounds[sound_name] = snd
+                print(f"🔊 Ses yüklendi: {sound_name} ({filename})")
+            except Exception as e:
+                print(f"✗ Ses yüklenemedi {path}: {e}")
+
+        if not sounds:
+            print("⚠ Ses dosyası bulunamadı. Sesler kapalı.")
+
+        return sounds
+
+    def play_sound(self, name: str):
+        """Play a sound by name if it exists (e.g. 'slice', 'bomb', 'game_over')."""
+        if not hasattr(self, "sounds") or not getattr(self, "sfx_enabled", True):
+            return
+        snd = self.sounds.get(name.lower())
+        if snd:
+            try:
+                snd.play()
+            except Exception:
+                pass
     
     def get_random_fruit_type(self):
         """Get a random fruit type, prioritizing those with images"""
@@ -437,6 +637,35 @@ class FruitNinja:
                     self.best_score = int(f.read().strip())
         except:
             self.best_score = 0
+
+    def load_settings(self):
+        """Load settings from a small JSON file if it exists."""
+        import json
+        try:
+            if os.path.exists("settings.json"):
+                with open("settings.json", "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                self.player_name = data.get("player_name", self.player_name)
+                self.music_enabled = data.get("music_enabled", self.music_enabled)
+                self.sfx_enabled = data.get("sfx_enabled", self.sfx_enabled)
+                self.game_mode = data.get("game_mode", self.game_mode)
+        except Exception as e:
+            print(f"⚠ Ayarlar okunamadı: {e}")
+
+    def save_settings(self):
+        """Persist current settings to disk."""
+        import json
+        data = {
+            "player_name": self.player_name,
+            "music_enabled": self.music_enabled,
+            "sfx_enabled": self.sfx_enabled,
+            "game_mode": self.game_mode,
+        }
+        try:
+            with open("settings.json", "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"⚠ Ayarlar yazılamadı: {e}")
     
     def save_best_score(self):
         """Save best score to file"""
@@ -475,63 +704,43 @@ class FruitNinja:
         y = GAME_AREA_Y + GAME_AREA_HEIGHT + 30  # ekranın biraz altı
         vx = random.uniform(-4, 4)
         vy = random.uniform(-10, -8)  # yukarı doğru
-
-        bomb = Bomb(x, y)
+        
+        bomb = Bomb(x, y, image=self.bomb_image)
         bomb.vx = vx
         bomb.vy = vy
         self.bombs.append(bomb)
+        # Throw sound for bombs (if available)
+        self.play_sound("throw")
     
     def spawn_fruit(self):
-        """Spawn a new fruit at a random edge"""
-        side = random.randint(0, 3)
-        center_x = SCREEN_WIDTH // 2
-        center_y = GAME_AREA_Y + GAME_AREA_HEIGHT // 2
-        
-        if side == 0:  # Top
-            x = random.randint(50, SCREEN_WIDTH - 50)
-            y = GAME_AREA_Y
-            # Velocity towards center with some randomness
-            dx = center_x - x + random.uniform(-50, 50)
-            dy = center_y - y + random.uniform(0, 100)
-        elif side == 1:  # Right
-            x = SCREEN_WIDTH
-            y = random.randint(50, SCREEN_HEIGHT - 50)
-            dx = center_x - x + random.uniform(-100, 0)
-            dy = center_y - y + random.uniform(-50, 50)
-        elif side == 2:  # Bottom
-            x = random.randint(50, SCREEN_WIDTH - 50)
-            y = GAME_AREA_Y + GAME_AREA_HEIGHT
-            dx = center_x - x + random.uniform(-50, 50)
-            dy = center_y - y + random.uniform(-100, 0)
-        else:  # Left
-            x = 0
-            y = random.randint(50, SCREEN_HEIGHT - 50)
-            dx = center_x - x + random.uniform(0, 100)
-            dy = center_y - y + random.uniform(-50, 50)
-        
-        # Normalize velocity
-        speed = random.uniform(2, 4)
-        distance = math.sqrt(dx*dx + dy*dy)
-        if distance > 0:
-            vx = (dx / distance) * speed
-            vy = (dy / distance) * speed
-        else:
-            vx = random.uniform(-2, 2)
-            vy = random.uniform(-2, 2)
+        """Spawn a new fruit from bottom going upward (like Fruit Ninja)."""
+        x = random.randint(80, SCREEN_WIDTH - 80)
+        y = GAME_AREA_Y + GAME_AREA_HEIGHT + 30  # ekranın biraz altı
+        # Parabolik fırlatma: yukarı doğru güçlü hız, hafif yatay sapma
+        vx = random.uniform(-6, 6)
+        vy = random.uniform(-16, -11)  # daha yüksek zıplasın
         
         # Get fruit type and images
         fruit_type = self.get_random_fruit_type()
         whole_img = None
         sliced_img = None
+        half_images = None
         
         if fruit_type in self.fruit_images:
-            whole_img = self.fruit_images[fruit_type]["whole"]
-            sliced_img = self.fruit_images[fruit_type]["sliced"]
+            info = self.fruit_images[fruit_type]
+            variants = info.get("whole_variants") or [info.get("whole")]
+            # Choose random variant from all whole images (including images/fruit)
+            whole_img = random.choice([img for img in variants if img is not None])
+            sliced_img = info.get("sliced")
+            # Optional pre-cut halves
+            half_images = info.get("halves")
         
-        fruit = Fruit(x, y, fruit_type, whole_img, sliced_img)
+        fruit = Fruit(x, y, fruit_type, whole_img, sliced_img, half_images=half_images)
         fruit.vx = vx
         fruit.vy = vy
         self.fruits.append(fruit)
+        # Throw sound for fruits (if available)
+        self.play_sound("throw")
     
     def point_line_distance(self, px, py, x1, y1, x2, y2):
         """Calculate distance from point to line segment"""
@@ -597,10 +806,16 @@ class FruitNinja:
     def slice_fruit(self, fruit):
         """Slice a fruit and create particles and sliced fruit halves"""
         # Create sliced fruit halves FIRST (before particles so it appears on top)
-        if fruit.sliced_image:
-            sliced_fruit = SlicedFruit(fruit.x, fruit.y, fruit.fruit_type, fruit.sliced_image)
+        if fruit.sliced_image or fruit.half_images:
+            sliced_fruit = SlicedFruit(
+                fruit.x,
+                fruit.y,
+                fruit.fruit_type,
+                fruit.sliced_image,
+                half_images=fruit.half_images,
+            )
             self.sliced_fruits.append(sliced_fruit)
-            print(f"🍎 {fruit.fruit_type} kesildi - sliced resim eklendi ({fruit.sliced_image.get_width()}x{fruit.sliced_image.get_height()})")
+            print(f"🍎 {fruit.fruit_type} kesildi - gerçek yarım meyve görselleri kullanılıyor")
         else:
             print(f"⚠ {fruit.fruit_type} kesildi ama sliced resmi yok!")
         
@@ -618,7 +833,13 @@ class FruitNinja:
         # Update combo
         self.combo += 1
         self.combo_timer = self.combo_timeout
-        
+
+        # Play splatter sound for each sliced fruit (prefer 'splatter' if exists)
+        if "splatter" in getattr(self, "sounds", {}):
+            self.play_sound("splatter")
+        else:
+            self.play_sound("slice")
+
         # Score with combo multiplier
         combo_multiplier = max(1, self.combo - 1)
         points = 1 + combo_multiplier
@@ -629,6 +850,23 @@ class FruitNinja:
         if self.score > self.best_score:
             self.best_score = self.score
             self.save_best_score()
+
+    def start_bomb_flash(self, bomb: Bomb):
+        """Start radial white beam effect and trigger game over."""
+        self.game_over = True
+        # Prefer 'boom' sound if available, otherwise fall back to 'bomb'
+        if "boom" in getattr(self, "sounds", {}):
+            self.play_sound("boom")
+        else:
+            self.play_sound("bomb")
+        print("💣 BOMBA PATLADI! GAME OVER!")
+        # Center of flash at bomb position
+        self.bomb_flash_center = (bomb.x, bomb.y)
+        self.bomb_flash_active = True
+        self.bomb_flash_timer = 0
+        # Optionally clear other fruits/bombs so focus stays on flash
+        self.fruits = []
+        self.bombs = []
     
     def handle_events(self):
         for event in pygame.event.get():
@@ -657,8 +895,8 @@ class FruitNinja:
                         # Check for bomb slices (GAME OVER!)
                         for bomb in self.bombs:
                             if self.check_bomb_slice(bomb):
-                                self.game_over = True
-                                print("💣 BOMBA PATLADI! GAME OVER!")
+                                # Trigger bomb flash effect and game over
+                                self.start_bomb_flash(bomb)
                                 return
                         
                         # Check for fruit slices
@@ -763,8 +1001,18 @@ class FruitNinja:
             pygame.draw.circle(screen, color, (int(x), int(y)), 2)
     
     def update(self):
-        if self.game_over or self.show_title_screen:
+        if self.show_title_screen:
             return  # Don't update if game is over or on title screen
+
+        # While bomb flash is active we still advance its timer but freeze gameplay
+        if self.game_over and self.bomb_flash_active:
+            self.bomb_flash_timer += 1
+            if self.bomb_flash_timer >= self.bomb_flash_duration:
+                self.bomb_flash_active = False
+                # After flash ends, let draw() show GAME OVER for a short time,
+                # then exit the game loop so main can restart to menu.
+                # We don't update entities any further here.
+            return
         
         # Spawn fruits
         self.spawn_timer += 1
@@ -782,8 +1030,25 @@ class FruitNinja:
             self.bomb_spawn_interval = max(180, self.bomb_spawn_interval - 5)
         
         # Update fruits
+        fruits_to_remove = []
         for fruit in self.fruits:
             fruit.update()
+            if fruit.is_missed():
+                fruits_to_remove.append(fruit)
+        # Remove missed fruits and lose lives
+        for fruit in fruits_to_remove:
+            self.fruits.remove(fruit)
+            self.lives -= 1
+            # Start life-loss animation on the newly lost heart index
+            self.life_loss_index = MAX_LIVES - self.lives - 1
+            self.life_loss_timer = self.life_loss_duration
+            print("❌ Meyve kaçtı, 1 can gitti")
+            # Play failed sound for missed fruit if available
+            if not self.game_over and "failed" in getattr(self, "sounds", {}):
+                self.play_sound("failed")
+            if self.lives <= 0 and not self.game_over:
+                # Trigger game over like bomb but without flash
+                self.game_over = True
         
         # Update bombs
         for bomb in self.bombs:
@@ -841,6 +1106,12 @@ class FruitNinja:
         # Draw sliced fruits (halves flying apart) - on top of particles
         for sliced_fruit in self.sliced_fruits:
             sliced_fruit.draw(self.screen)
+
+        # If a bomb flash is active, draw it on top of everything and skip UI/game-over for now
+        if self.game_over and self.bomb_flash_active and self.bomb_flash_center:
+            self.draw_bomb_flash()
+            pygame.display.flip()
+            return
         
         # Draw swipe path (only in game area)
         if len(self.swipe_path) > 1:
@@ -870,8 +1141,56 @@ class FruitNinja:
         # Draw game over screen
         if self.game_over:
             self.draw_game_over()
+            pygame.display.flip()
+            # After showing GAME OVER for a short time, stop main loop,
+            # so __main__ can restart from the menu.
+            if not hasattr(self, "_game_over_frames"):
+                self._game_over_frames = 0
+            self._game_over_frames += 1
+            # ~1.5 saniye sonra kapan
+            if self._game_over_frames > FPS * 1.5:
+                self.running = False
+            return
         
         pygame.display.flip()
+
+    def draw_bomb_flash(self):
+        """Draw radial white beams centered on last sliced bomb, like Fruit Ninja."""
+        cx, cy = self.bomb_flash_center
+        num_rays = 10
+        max_radius = max(SCREEN_WIDTH, SCREEN_HEIGHT) * 1.5
+
+        # Slight red bomb overlay with X at center
+        bomb_radius = 40
+        pygame.draw.circle(self.screen, (200, 0, 0), (int(cx), int(cy)), bomb_radius)
+        line_thickness = 6
+        pygame.draw.line(
+            self.screen,
+            (0, 0, 0),
+            (int(cx - bomb_radius * 0.6), int(cy - bomb_radius * 0.6)),
+            (int(cx + bomb_radius * 0.6), int(cy + bomb_radius * 0.6)),
+            line_thickness,
+        )
+        pygame.draw.line(
+            self.screen,
+            (0, 0, 0),
+            (int(cx - bomb_radius * 0.6), int(cy + bomb_radius * 0.6)),
+            (int(cx + bomb_radius * 0.6), int(cy - bomb_radius * 0.6)),
+            line_thickness,
+        )
+
+        # Radial white beams
+        for i in range(num_rays):
+            angle = (2 * math.pi / num_rays) * i
+            x2 = cx + math.cos(angle) * max_radius
+            y2 = cy + math.sin(angle) * max_radius
+            # Small angle width for each beam
+            angle2 = angle + (2 * math.pi / num_rays) * 0.3
+            x3 = cx + math.cos(angle2) * max_radius
+            y3 = cy + math.sin(angle2) * max_radius
+
+            points = [(cx, cy), (x2, y2), (x3, y3)]
+            pygame.draw.polygon(self.screen, WHITE, points)
     
     def draw_title_screen(self):
         """Draw the title/loading screen"""
@@ -908,30 +1227,34 @@ class FruitNinja:
     
     def draw_game_over(self):
         """Draw game over screen"""
-        # Semi-transparent overlay
+        # Slightly darken full screen
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
-        overlay.set_alpha(200)
+        overlay.set_alpha(220)
         overlay.fill(BLACK)
         self.screen.blit(overlay, (0, 0))
         
-        # Game Over text
-        game_over_text = self.font_large.render("GAME OVER!", True, RED)
-        game_over_rect = game_over_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 80))
+        # Game Over graphic if available
+        if self.game_over_image:
+            img = self.game_over_image
+            scale = min(
+                (SCREEN_WIDTH * 0.8) / img.get_width(),
+                (SCREEN_HEIGHT * 0.4) / img.get_height(),
+            )
+            img_s = pygame.transform.smoothscale(
+                img,
+                (int(img.get_width() * scale), int(img.get_height() * scale)),
+            )
+            rect = img_s.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
+            self.screen.blit(img_s, rect)
+        else:
+            # Fallback text "GAME OVER!"
+            game_over_text = self.font_title.render("GAME OVER", True, RED)
+            game_over_rect = game_over_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
         self.screen.blit(game_over_text, game_over_rect)
         
-        # Final score
-        score_text = self.font_medium.render(f"Score: {self.score}", True, WHITE)
-        score_rect = score_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 20))
-        self.screen.blit(score_text, score_rect)
-        
-        # Best score
-        best_text = self.font_medium.render(f"Best: {self.best_score}", True, YELLOW)
-        best_rect = best_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 20))
-        self.screen.blit(best_text, best_rect)
-        
-        # Restart instruction
+        # Restart instruction (small text at bottom)
         restart_text = self.font_small.render("Press SPACE to restart", True, WHITE)
-        restart_rect = restart_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 80))
+        restart_rect = restart_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 60))
         self.screen.blit(restart_text, restart_rect)
     
     def draw_ui(self):
@@ -960,10 +1283,22 @@ class FruitNinja:
                 # Draw blue X for remaining lives
                 color = BLUE
             
-            # Draw X symbol
-            font = pygame.font.Font(None, 36)
+            # Draw X symbol (with simple animation when life lost)
+            font_size = 36
+            if self.life_loss_timer > 0 and self.life_loss_index == i:
+                # phase: 0 → 1 over the duration
+                phase = 1.0 - (self.life_loss_timer / max(1, self.life_loss_duration))
+                # Smooth pulse: goes up then down (sinus)
+                pulse = math.sin(math.pi * phase)  # 0 → 1 → 0
+                scale = 1.0 + 0.5 * pulse          # 1.0 → 1.5 → 1.0
+                font_size = int(36 * scale)
+            font = pygame.font.Font(None, font_size)
             x_text = font.render("X", True, color)
             self.screen.blit(x_text, (x_pos, y_center - x_text.get_height() // 2))
+
+        # Decrease life-loss timer
+        if self.life_loss_timer > 0:
+            self.life_loss_timer -= 1
     
     def run(self):
         while self.running:
@@ -971,8 +1306,7 @@ class FruitNinja:
             self.update()
             self.draw()
             self.clock.tick(FPS)
-        
-        pygame.quit()
+        # Döngü bittiğinde sadece fonksiyondan çık; ana while True yeni oyunu başlatacak.
 
 
 class MenuScreen:
@@ -985,7 +1319,7 @@ class MenuScreen:
         self.fruit_images = game.fruit_images
         self.clock = pygame.time.Clock()
         self.running = True
-        
+
         # Swipe path tracking
         self.swipe_path: List[Tuple[int, int]] = []
         self.swiping = False
@@ -996,6 +1330,9 @@ class MenuScreen:
         self.ninja_font = pygame.font.Font(None, 72)
         self.button_font = pygame.font.Font(None, 24)
         self.instruction_font = pygame.font.Font(None, 20)
+        # Extra fonts for settings text
+        self.font_medium = pygame.font.Font(None, 32)
+        self.font_small = pygame.font.Font(None, 22)
         
         # Button positions and sizes
         self.start_button_pos = (SCREEN_WIDTH // 2 - 50, SCREEN_HEIGHT // 2 + 50)
@@ -1112,6 +1449,24 @@ class MenuScreen:
                 return True
         
         return False
+
+    def check_settings_slice(self):
+        """Check if swipe path slices the settings (kiwi) button"""
+        if len(self.swipe_path) < 2:
+            return False
+
+        setx, sety = self.settings_button_pos
+        settings_radius = self.settings_button_radius * 0.6
+
+        for i in range(len(self.swipe_path) - 1):
+            x1, y1 = self.swipe_path[i]
+            x2, y2 = self.swipe_path[i + 1]
+
+            distance = self.point_line_distance(setx, sety, x1, y1, x2, y2)
+            if distance < settings_radius:
+                return True
+
+        return False
     
     def draw_instruction_sign(self):
         """Draw the wooden instruction sign"""
@@ -1219,7 +1574,7 @@ class MenuScreen:
                 h = int(fruit_img.get_height() * scale)
                 img_s = pygame.transform.smoothscale(fruit_img, (w, h))
                 img_rect = img_s.get_rect(center=center)
-                self.screen.blit(img_s, img_rect)
+            self.screen.blit(img_s, img_rect)
 
     def run(self):
         """Run the menu screen"""
@@ -1244,7 +1599,8 @@ class MenuScreen:
                         # Check SETTINGS button
                         setx, sety = self.settings_button_pos
                         if (mx - setx) ** 2 + (my - sety) ** 2 <= self.settings_button_radius ** 2:
-                            return "SETTINGS"
+                            # Open settings screen instead of leaving menu
+                            self.show_settings_screen()
                 elif event.type == pygame.MOUSEBUTTONUP:
                     if event.button == 1:
                         self.swiping = False
@@ -1252,17 +1608,22 @@ class MenuScreen:
                 elif event.type == pygame.MOUSEMOTION:
                     if self.swiping:
                         self.swipe_path.append(event.pos)
-                        # Check if swipe path slices the watermelon
+                        # Check if swipe path slices the watermelon (START)
                         if not self.watermelon_sliced:
                             if self.check_watermelon_slice():
                                 self.watermelon_sliced = True
                                 # Play slice animation (this will show the animation)
                                 self.play_slice_animation(self.start_button_pos)
                                 return "START"
+                        # Check if swipe path slices the kiwi (SETTINGS)
+                        if self.check_settings_slice():
+                            self.show_settings_screen()
+                            self.swiping = False
+                            self.swipe_path = []
 
             # Draw background
             self.screen.blit(self.wood_texture, (0, 0))
-            
+
             # Draw title
             self.draw_colored_title()
             
@@ -1294,6 +1655,114 @@ class MenuScreen:
             pygame.display.flip()
             self.clock.tick(60)
 
+    def show_settings_screen(self):
+        """Settings screen: toggle sound, change name, choose game mode."""
+        in_settings = True
+        # Local copies of settings (so user can cancel in future if needed)
+        name_text = self.game.player_name
+        music_on = self.game.music_enabled
+        sfx_on = self.game.sfx_enabled
+        modes = ["Classic", "Zen", "Arcade"]
+        mode_index = modes.index(self.game.game_mode) if self.game.game_mode in modes else 0
+        active_field = "none"  # "name" for editing
+
+        while in_settings:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                elif event.type == pygame.KEYDOWN:
+                    if active_field == "name":
+                        # Basic text input handling
+                        if event.key == pygame.K_RETURN:
+                            active_field = "none"
+                        elif event.key == pygame.K_BACKSPACE:
+                            name_text = name_text[:-1]
+                        else:
+                            ch = event.unicode
+                            if ch.isprintable() and len(name_text) < 12:
+                                name_text += ch
+                    else:
+                        # ESC veya Enter ile çık
+                        if event.key in (pygame.K_ESCAPE, pygame.K_RETURN):
+                            in_settings = False
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    mx, my = event.pos
+                    # Click regions for toggles and fields
+                    # Music toggle rect
+                    if 220 <= mx <= 420 and 210 <= my <= 245:
+                        music_on = not music_on
+                    # SFX toggle rect
+                    elif 220 <= mx <= 420 and 250 <= my <= 285:
+                        sfx_on = not sfx_on
+                    # Mode change rect
+                    elif 220 <= mx <= 420 and 290 <= my <= 325:
+                        mode_index = (mode_index + 1) % len(modes)
+                    # Name field rect
+                    elif 220 <= mx <= 520 and 330 <= my <= 365:
+                        active_field = "name"
+                    else:
+                        # Click outside → close & save
+                        in_settings = False
+
+            # Background
+            self.screen.blit(self.wood_texture, (0, 0))
+
+            # Semi-transparent overlay
+            overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 180))
+            self.screen.blit(overlay, (0, 0))
+
+            # Title
+            title = self.title_font.render("AYARLAR", True, YELLOW)
+            title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 120))
+            self.screen.blit(title, title_rect)
+
+            # Music toggle
+            music_label = self.font_small.render("Müzik:", True, WHITE)
+            music_value = self.font_small.render("AÇIK" if music_on else "KAPALI", True, YELLOW)
+            self.screen.blit(music_label, (180, 215))
+            self.screen.blit(music_value, (320, 215))
+
+            # SFX toggle
+            sfx_label = self.font_small.render("Ses Efektleri:", True, WHITE)
+            sfx_value = self.font_small.render("AÇIK" if sfx_on else "KAPALI", True, YELLOW)
+            self.screen.blit(sfx_label, (180, 255))
+            self.screen.blit(sfx_value, (320, 255))
+
+            # Mode selection
+            mode_label = self.font_small.render("Oyun Modu:", True, WHITE)
+            mode_value = self.font_small.render(modes[mode_index], True, YELLOW)
+            self.screen.blit(mode_label, (180, 295))
+            self.screen.blit(mode_value, (320, 295))
+
+            # Name field
+            name_label = self.font_small.render("İsim:", True, WHITE)
+            self.screen.blit(name_label, (180, 335))
+            # Draw name box
+            name_rect = pygame.Rect(220, 330, 260, 35)
+            pygame.draw.rect(self.screen, (80, 80, 80), name_rect, border_radius=6)
+            border_color = YELLOW if active_field == "name" else WHITE
+            pygame.draw.rect(self.screen, border_color, name_rect, width=2, border_radius=6)
+            name_surf = self.font_small.render(name_text or "İsminiz...", True, (230, 230, 230))
+            self.screen.blit(name_surf, (name_rect.x + 8, name_rect.y + 8))
+
+            # Footer hint
+            hint = self.font_small.render("Değişiklikleri kaydetmek için herhangi bir tuşa / alana tıkla", True, WHITE)
+            hint_rect = hint.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 40))
+            self.screen.blit(hint, hint_rect)
+
+            pygame.display.flip()
+            self.clock.tick(60)
+
+        # Save back to game object and persist
+        self.game.player_name = name_text or "Player"
+        self.game.music_enabled = music_on
+        self.game.sfx_enabled = sfx_on
+        self.game.game_mode = modes[mode_index]
+        if hasattr(self.game, "save_settings"):
+            self.game.save_settings()
+
     def play_slice_animation(self, center_pos):
         """Show sliced-fruit animation at `center_pos` matching game style."""
         cx, cy = center_pos
@@ -1303,6 +1772,13 @@ class MenuScreen:
         watermelon_color = (0, 180, 0)  # Green color for watermelon
         if "watermelon" in self.fruit_images:
             sliced_img = self.fruit_images["watermelon"].get("sliced")
+
+        # Play sword + splatter sound like in-game
+        if hasattr(self.game, "play_sound"):
+            if "splatter" in getattr(self.game, "sounds", {}):
+                self.game.play_sound("splatter")
+            else:
+                self.game.play_sound("slice")
 
         # Create sliced fruit with slower speed for better visibility
         sliced = SlicedFruit(cx, cy, "watermelon", sliced_img)
@@ -1357,7 +1833,7 @@ class MenuScreen:
             # Update and draw
             # Update sliced fruit
             sliced.update()
-            
+
             # Update particles
             for p in particles:
                 p.update()
@@ -1383,15 +1859,15 @@ class MenuScreen:
 
 
 if __name__ == "__main__":
-    game = FruitNinja()
-    menu = MenuScreen(game)
-    selected = menu.run()
-    if selected is None:
-        pygame.quit()
-        sys.exit()
-    # You could change game behaviour based on `selected`
-    print(f"Selected mode: {selected}")
-    # Skip title screen if START was selected
-    if selected == "START":
-        game.show_title_screen = False
-    game.run()
+    while True:
+        game = FruitNinja()
+        menu = MenuScreen(game)
+        selected = menu.run()
+        if selected is None:
+            pygame.quit()
+            sys.exit()
+        print(f"Selected mode: {selected}")
+        if selected == "START":
+            game.show_title_screen = False
+        game.run()
+        # Oyun döngüsü bitti (GAME OVER vb.), tekrar menüye dönmek için döngü başa saracak
