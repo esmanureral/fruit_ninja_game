@@ -368,6 +368,11 @@ class FruitNinja:
         self.fruit_images = self.load_fruit_images()
         # Load sounds
         self.sounds = self.load_sounds()
+        # Start/stop background music according to settings
+        try:
+            self.update_background_music()
+        except Exception:
+            pass
 
         # Optional bomb and game-over images
         self.bomb_image = None
@@ -611,6 +616,29 @@ class FruitNinja:
             print("⚠ Ses dosyası bulunamadı. Sesler kapalı.")
 
         return sounds
+
+    def update_background_music(self):
+        """Start or stop background/menu music according to `self.music_enabled`."""
+        try:
+            menu_path = os.path.join(SOUND_FOLDER, "menu.mp3")
+            if getattr(self, "music_enabled", True) and os.path.exists(menu_path):
+                try:
+                    pygame.mixer.music.load(menu_path)
+                    pygame.mixer.music.set_volume(0.4)
+                    pygame.mixer.music.play(-1)
+                except Exception:
+                    # Fallback: stop music if cannot play
+                    try:
+                        pygame.mixer.music.stop()
+                    except Exception:
+                        pass
+            else:
+                try:
+                    pygame.mixer.music.stop()
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     def play_sound(self, name: str):
         """Play a sound by name if it exists (e.g. 'slice', 'bomb', 'game_over')."""
@@ -1250,7 +1278,7 @@ class FruitNinja:
             # Fallback text "GAME OVER!"
             game_over_text = self.font_title.render("GAME OVER", True, RED)
             game_over_rect = game_over_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
-        self.screen.blit(game_over_text, game_over_rect)
+            self.screen.blit(game_over_text, game_over_rect)
         
         # Restart instruction (small text at bottom)
         restart_text = self.font_small.render("Press SPACE to restart", True, WHITE)
@@ -1692,6 +1720,12 @@ class MenuScreen:
                     # Music toggle rect
                     if 220 <= mx <= 420 and 210 <= my <= 245:
                         music_on = not music_on
+                        # Apply immediately so user can hear/stop music while in menu
+                        try:
+                            self.game.music_enabled = music_on
+                            self.game.update_background_music()
+                        except Exception:
+                            pass
                     # SFX toggle rect
                     elif 220 <= mx <= 420 and 250 <= my <= 285:
                         sfx_on = not sfx_on
@@ -1760,6 +1794,10 @@ class MenuScreen:
         self.game.music_enabled = music_on
         self.game.sfx_enabled = sfx_on
         self.game.game_mode = modes[mode_index]
+        try:
+            self.game.update_background_music()
+        except Exception:
+            pass
         if hasattr(self.game, "save_settings"):
             self.game.save_settings()
 
