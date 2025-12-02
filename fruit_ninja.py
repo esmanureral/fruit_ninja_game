@@ -91,11 +91,11 @@ class Fruit:
         if self.image:
             self.radius = max(self.image.get_width(), self.image.get_height()) // 2
         
-    def update(self):
-        self.x += self.vx
-        self.y += self.vy
-        self.vy += GRAVITY
-        self.angle += self.rotation_speed
+    def update(self, speed_mult=1.0):
+        self.x += self.vx * speed_mult
+        self.y += self.vy * speed_mult
+        self.vy += GRAVITY * speed_mult
+        self.angle += self.rotation_speed * speed_mult
         
         # Kenardan çok çıkmasın diye yatay konumu sınırla
         self.x = max(self.radius, min(SCREEN_WIDTH - self.radius, self.x))
@@ -161,22 +161,22 @@ class SlicedFruit:
         self.rotation_speed1 = random.uniform(-10, 10)
         self.rotation_speed2 = random.uniform(-10, 10)
         
-    def update(self):
+    def update(self, speed_mult=1.0):
         # Update positions
-        self.half1_x += self.half1_vx
-        self.half1_y += self.half1_vy
-        self.half2_x += self.half2_vx
-        self.half2_y += self.half2_vy
+        self.half1_x += self.half1_vx * speed_mult
+        self.half1_y += self.half1_vy * speed_mult
+        self.half2_x += self.half2_vx * speed_mult
+        self.half2_y += self.half2_vy * speed_mult
         
         # Gravity
-        self.half1_vy += 0.5
-        self.half2_vy += 0.5
+        self.half1_vy += 0.5 * speed_mult
+        self.half2_vy += 0.5 * speed_mult
         
         # Rotation
-        self.rotation1 += self.rotation_speed1
-        self.rotation2 += self.rotation_speed2
+        self.rotation1 += self.rotation_speed1 * speed_mult
+        self.rotation2 += self.rotation_speed2 * speed_mult
         
-        self.life -= 1
+        self.life -= 1 * speed_mult
         
     def draw(self, screen):
         if self.half_images and len(self.half_images) >= 2:
@@ -233,12 +233,12 @@ class Bomb:
         self.pulse_timer = 0  # For pulsing effect
         self.image = image
         
-    def update(self):
-        self.x += self.vx
-        self.y += self.vy
-        self.vy += GRAVITY * 0.8
-        self.angle += self.rotation_speed
-        self.pulse_timer += 1
+    def update(self, speed_mult=1.0):
+        self.x += self.vx * speed_mult
+        self.y += self.vy * speed_mult
+        self.vy += GRAVITY * 0.8 * speed_mult
+        self.angle += self.rotation_speed * speed_mult
+        self.pulse_timer += 1 * speed_mult
         
         # Kenardan aşırı taşmasın
         self.x = max(self.radius, min(SCREEN_WIDTH - self.radius, self.x))
@@ -299,11 +299,11 @@ class Particle:
         self.size = random.randint(3, 8)
         self.life = 30
         
-    def update(self):
-        self.x += self.vx
-        self.y += self.vy
-        self.life -= 1
-        self.vy += 0.3  # Gravity
+    def update(self, speed_mult=1.0):
+        self.x += self.vx * speed_mult
+        self.y += self.vy * speed_mult
+        self.life -= 1 * speed_mult
+        self.vy += 0.3 * speed_mult  # Gravity
         
     def draw(self, screen):
         # Fade out particles as they age
@@ -344,8 +344,8 @@ class Splash:
             
         return surf
 
-    def update(self):
-        self.life -= 1
+    def update(self, speed_mult=1.0):
+        self.life -= 1 * speed_mult
 
     def draw(self, screen):
         if self.life > 0:
@@ -359,6 +359,41 @@ class Splash:
     def is_alive(self):
         return self.life > 0
 
+class PowerUp:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.radius = 35
+        self.vx = random.uniform(-3, 3)
+        self.vy = random.uniform(-10, -13)
+        self.color = (0, 191, 255) # Cyan
+        self.type = "speed"
+        self.angle = 0
+        self.rotation_speed = 5
+        
+    def update(self, speed_mult=1.0):
+        self.x += self.vx * speed_mult
+        self.y += self.vy * speed_mult
+        self.vy += 0.25 * speed_mult # Gravity
+        self.angle += self.rotation_speed * speed_mult
+
+    def draw(self, screen):
+        # Draw glowing orb
+        pygame.draw.circle(screen, self.color, (int(self.x), int(self.y)), self.radius)
+        pygame.draw.circle(screen, (255, 255, 255), (int(self.x), int(self.y)), self.radius - 5, 2)
+        
+        # Draw ">>" symbol
+        font = pygame.font.Font(None, 40)
+        text = font.render(">>", True, (255, 255, 255))
+        rect = text.get_rect(center=(self.x, self.y))
+        screen.blit(text, rect)
+        
+    def get_rect(self):
+        return pygame.Rect(self.x - self.radius, self.y - self.radius, self.radius*2, self.radius*2)
+        
+    def is_missed(self):
+        return self.y - self.radius > SCREEN_HEIGHT + 50
+
 class FruitNinja:
     def __init__(self):
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -371,6 +406,10 @@ class FruitNinja:
         self.sliced_fruits: List[SlicedFruit] = []
         self.particles: List[Particle] = []
         self.splashes = []  # List for paint splashes
+        self.powerups = []  # List for powerups
+        self.game_speed = 1.0
+        self.speed_boost_timer = 0
+        self.powerup_spawn_timer = 0
         self.score = 0
         self.best_score = 0
         self.lives = MAX_LIVES
@@ -998,6 +1037,21 @@ class FruitNinja:
         self.bombs.append(bomb)
         # Throw sound for bombs (if available)
         self.play_sound("throw")
+
+    def spawn_powerup(self):
+        """Spawn a speed boost powerup"""
+        x = random.randint(100, SCREEN_WIDTH - 100)
+        y = GAME_AREA_Y + GAME_AREA_HEIGHT + 30
+        powerup = PowerUp(x, y)
+        self.powerups.append(powerup)
+        self.play_sound("throw")
+
+    def activate_speed_boost(self):
+        """Activate speed boost for 5 seconds"""
+        self.speed_boost_timer = 300 # 5 seconds at 60 FPS
+        print("⚡ SPEED BOOST ACTIVATED!")
+        # Play a sound if available, or reuse 'throw' or 'slice'
+        self.play_sound("throw")
     
     def spawn_fruit(self):
         """Spawn a new fruit from bottom going upward (like Fruit Ninja)."""
@@ -1203,6 +1257,15 @@ class FruitNinja:
                                 self.start_bomb_flash(bomb)
                                 return
                         
+                        # Check for powerup slices
+                        powerups_to_remove = []
+                        for p in self.powerups:
+                            if self.check_slice(p):
+                                self.activate_speed_boost()
+                                powerups_to_remove.append(p)
+                        for p in powerups_to_remove:
+                            self.powerups.remove(p)
+                        
                         # Check for fruit slices
                         fruits_to_remove = []
                         sliced_this_frame = 0
@@ -1355,8 +1418,15 @@ class FruitNinja:
                 # We don't update entities any further here.
             return
         
+        # Speed boost logic
+        if self.speed_boost_timer > 0:
+            self.game_speed = 1.5 # %50 daha hızlı
+            self.speed_boost_timer -= 1
+        else:
+            self.game_speed = 1.0
+        
         # Spawn fruits
-        self.spawn_timer += 1
+        self.spawn_timer += 1 * self.game_speed
         if self.spawn_timer >= self.spawn_interval:
             self.spawn_fruit()
             self.spawn_timer = 0
@@ -1366,7 +1436,7 @@ class FruitNinja:
         
         # Spawn bombs (less frequently, mode-based)
         if self.game_mode != "Kolay":  # Kolay modda bomba yok
-            self.bomb_spawn_timer += 1
+            self.bomb_spawn_timer += 1 * self.game_speed
             if self.bomb_spawn_timer >= self.bomb_spawn_interval:
                 self.spawn_bomb()
                 self.bomb_spawn_timer = 0
@@ -1376,11 +1446,19 @@ class FruitNinja:
                     min_bomb_interval,
                     self.bomb_spawn_interval - self.bomb_spawn_acceleration,
                 )
+                
+        # Spawn PowerUps (Only Medium/Hard)
+        if self.game_mode in ["Orta", "Zor"]:
+            self.powerup_spawn_timer += 1 * self.game_speed
+            if self.powerup_spawn_timer > 600: # ~10 saniye
+                if random.random() < 0.4:
+                    self.spawn_powerup()
+                self.powerup_spawn_timer = 0
         
         # Update fruits
         fruits_to_remove = []
         for fruit in self.fruits:
-            fruit.update()
+            fruit.update(self.game_speed)
             if fruit.is_missed():
                 fruits_to_remove.append(fruit)
         # Remove missed fruits and lose lives
@@ -1400,25 +1478,30 @@ class FruitNinja:
         
         # Update bombs
         for bomb in self.bombs:
-            bomb.update()
+            bomb.update(self.game_speed)
+            
+        # Update powerups
+        for p in self.powerups:
+            p.update(self.game_speed)
+        self.powerups = [p for p in self.powerups if not p.is_missed()]
         
         # Update sliced fruits
         for sliced_fruit in self.sliced_fruits:
-            sliced_fruit.update()
+            sliced_fruit.update(self.game_speed)
         
         # Remove dead sliced fruits
         self.sliced_fruits = [sf for sf in self.sliced_fruits if sf.is_alive()]
         
         # Update particles
         for particle in self.particles:
-            particle.update()
+            particle.update(self.game_speed)
         
         # Remove dead particles
         self.particles = [p for p in self.particles if p.is_alive()]
         
         # Update splashes
         for splash in self.splashes:
-            splash.update()
+            splash.update(self.game_speed)
         self.splashes = [s for s in self.splashes if s.is_alive()]
     
     def draw(self):
@@ -1442,6 +1525,18 @@ class FruitNinja:
         # Draw bombs
         for bomb in self.bombs:
             bomb.draw(self.screen)
+        
+        # Draw powerups
+        for p in self.powerups:
+            p.draw(self.screen)
+            
+        # Draw speed boost effect
+        if self.speed_boost_timer > 0:
+            boost_text = self.font_title.render("SPEED UP!", True, (0, 255, 255))
+            boost_rect = boost_text.get_rect(center=(SCREEN_WIDTH // 2, 150))
+            # Pulse effect
+            if (self.speed_boost_timer // 10) % 2 == 0:
+                self.screen.blit(boost_text, boost_rect)
         
         # Draw particles (behind sliced fruits)
         for particle in self.particles:
