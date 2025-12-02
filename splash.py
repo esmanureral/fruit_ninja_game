@@ -1,4 +1,9 @@
 
+import math
+import random
+import pygame
+
+
 class Splash:
     def __init__(self, x, y, color):
         self.x = x
