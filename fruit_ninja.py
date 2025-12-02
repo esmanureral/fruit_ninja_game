@@ -71,6 +71,11 @@ def brighten_color(color: Tuple[int, int, int], factor: float = 1.25, offset: in
     """Return a brighter variant of the given RGB color."""
     return tuple(max(0, min(255, int(c * factor + offset))) for c in color)
 
+# ==================================================================================================
+#                                         MODEL CLASSES
+#           (Data & Logic for Game Objects: Fruit, Bomb, Particles, PowerUps, etc.)
+# ==================================================================================================
+
 class Fruit:
     def __init__(self, x, y, fruit_type="apple", image=None, sliced_image=None, color=None, half_images=None):
         self.x = x
@@ -394,7 +399,116 @@ class PowerUp:
     def is_missed(self):
         return self.y - self.radius > SCREEN_HEIGHT + 50
 
-class FruitNinja:
+# ==================================================================================================
+#                                         VIEW CLASSES
+#                  (Rendering & Drawing Logic: Separated from Game Logic)
+# ==================================================================================================
+
+class FruitNinjaView:
+    """View component: Handles drawing/rendering logic"""
+    def __init__(self, game):
+        self.game = game
+    
+    def draw(self):
+        game = self.game
+        screen = game.screen
+        
+        # Draw title screen if showing
+        if game.show_title_screen:
+            game.draw_title_screen()
+            pygame.display.flip()
+            return
+        
+        # Full-screen wood background
+        screen.blit(game.wood_texture, (0, 0))
+        
+        # Draw splashes (on background, behind fruits)
+        for splash in game.splashes:
+            splash.draw(screen)
+            
+        # Draw fruits
+        for fruit in game.fruits:
+            fruit.draw(screen)
+            
+        # Draw bombs
+        for bomb in game.bombs:
+            bomb.draw(screen)
+            
+        # Draw powerups
+        for p in game.powerups:
+            p.draw(screen)
+            
+        # Draw speed boost effect
+        if game.speed_boost_timer > 0:
+            boost_text = game.font_title.render("SPEED UP!", True, (0, 255, 255))
+            boost_rect = boost_text.get_rect(center=(SCREEN_WIDTH // 2, 150))
+            if (game.speed_boost_timer // 10) % 2 == 0:
+                screen.blit(boost_text, boost_rect)
+        
+        # Draw particles
+        for particle in game.particles:
+            particle.draw(screen)
+            
+        # Draw sliced fruits
+        for sliced_fruit in game.sliced_fruits:
+            sliced_fruit.draw(screen)
+            
+        # Bomb flash
+        if game.game_over and game.bomb_flash_active and getattr(game, "bomb_flash_center", None):
+            game.draw_bomb_flash()
+            pygame.display.flip()
+            return
+            
+        # Swipe path
+        if len(game.swipe_path) > 1:
+            game.draw_swipe_path(screen, game.swipe_path)
+            
+        # UI
+        game.draw_ui()
+        
+        # Combo text
+        if game.combo_display_timer > 0 and game.combo_text_info:
+            count, points, x, y = game.combo_text_info
+            game.combo_display_timer -= 1
+            
+            x = max(100, min(SCREEN_WIDTH - 100, x))
+            y = max(100, min(SCREEN_HEIGHT - 100, y))
+            
+            text1 = game.font_large.render(f"{count} FRUIT", True, (255, 220, 0))
+            text2 = game.font_large.render("COMBO", True, (255, 220, 0))
+            text3 = game.font_title.render(f"+{points}", True, (255, 255, 255))
+            
+            offset_y = -int((90 - game.combo_display_timer) * 0.5)
+            
+            rect1 = text1.get_rect(center=(x, y - 50 + offset_y))
+            rect2 = text2.get_rect(center=(x, y - 10 + offset_y))
+            rect3 = text3.get_rect(center=(x, y + 50 + offset_y))
+            
+            for txt, r in [(text1, rect1), (text2, rect2), (text3, rect3)]:
+                shadow = txt.copy()
+                shadow.fill((0, 0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+                screen.blit(shadow, (r.x + 3, r.y + 3))
+                screen.blit(txt, r)
+        
+        # Game over
+        if game.game_over:
+            game.draw_game_over()
+            pygame.display.flip()
+            if not hasattr(game, "_game_over_frames"):
+                game._game_over_frames = 0
+            game._game_over_frames += 1
+            if game._game_over_frames > FPS * 1.5:
+                game.running = False
+            return
+            
+        pygame.display.flip()
+
+# ==================================================================================================
+#                                   VIEWMODEL / CONTROLLER CLASSES
+#                  (Main Game Logic, State Management, Input Handling)
+# ==================================================================================================
+
+class FruitNinjaViewModel:
     def __init__(self):
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
         pygame.display.set_caption("Fruit Ninja")
@@ -520,6 +634,9 @@ class FruitNinja:
 
         # (Settings icon rect was used previously for in-game gear; now disabled)
         self.settings_icon_rect = pygame.Rect(0, 0, 0, 0)
+        
+        # Initialize View
+        self.view = FruitNinjaView(self)
 
     def show_loading_screen(self, duration_ms: int = 0):
         """Show main menu-style start screen with sliced watermelon and START / SETTINGS buttons."""
@@ -1505,106 +1622,7 @@ class FruitNinja:
         self.splashes = [s for s in self.splashes if s.is_alive()]
     
     def draw(self):
-        # Draw title screen if showing
-        if self.show_title_screen:
-            self.draw_title_screen()
-            pygame.display.flip()
-            return
-        
-        # Full-screen wood background (no separate top/bottom bars)
-        self.screen.blit(self.wood_texture, (0, 0))
-        
-        # Draw splashes (on background, behind fruits)
-        for splash in self.splashes:
-            splash.draw(self.screen)
-        
-        # Draw fruits
-        for fruit in self.fruits:
-            fruit.draw(self.screen)
-        
-        # Draw bombs
-        for bomb in self.bombs:
-            bomb.draw(self.screen)
-        
-        # Draw powerups
-        for p in self.powerups:
-            p.draw(self.screen)
-            
-        # Draw speed boost effect
-        if self.speed_boost_timer > 0:
-            boost_text = self.font_title.render("SPEED UP!", True, (0, 255, 255))
-            boost_rect = boost_text.get_rect(center=(SCREEN_WIDTH // 2, 150))
-            # Pulse effect
-            if (self.speed_boost_timer // 10) % 2 == 0:
-                self.screen.blit(boost_text, boost_rect)
-        
-        # Draw particles (behind sliced fruits)
-        for particle in self.particles:
-            particle.draw(self.screen)
-        
-        # Draw sliced fruits (halves flying apart) - on top of particles
-        for sliced_fruit in self.sliced_fruits:
-            sliced_fruit.draw(self.screen)
-        
-        # If a bomb flash is active, draw it on top of everything and skip UI/game-over for now
-        if self.game_over and self.bomb_flash_active and self.bomb_flash_center:
-            self.draw_bomb_flash()
-            pygame.display.flip()
-            return
-        
-        # Draw swipe path across full screen
-        if len(self.swipe_path) > 1:
-            self.draw_swipe_path(self.screen, self.swipe_path)
-        
-        # Draw UI elements
-        self.draw_ui()
-        
-        # Draw combo text
-        if self.combo_display_timer > 0 and self.combo_text_info:
-            count, points, x, y = self.combo_text_info
-            self.combo_display_timer -= 1
-            
-            # Clamp position to screen bounds
-            x = max(100, min(SCREEN_WIDTH - 100, x))
-            y = max(100, min(SCREEN_HEIGHT - 100, y))
-            
-            # Draw "3 FRUIT"
-            text1 = self.font_large.render(f"{count} FRUIT", True, (255, 220, 0))
-            # Draw "COMBO"
-            text2 = self.font_large.render("COMBO", True, (255, 220, 0))
-            # Draw "+3"
-            text3 = self.font_title.render(f"+{points}", True, (255, 255, 255))
-            
-            # Floating effect
-            offset_y = -int((90 - self.combo_display_timer) * 0.5)
-            
-            rect1 = text1.get_rect(center=(x, y - 50 + offset_y))
-            rect2 = text2.get_rect(center=(x, y - 10 + offset_y))
-            rect3 = text3.get_rect(center=(x, y + 50 + offset_y))
-            
-            # Draw shadows and text
-            for txt, r in [(text1, rect1), (text2, rect2), (text3, rect3)]:
-                # Simple shadow by drawing black text offset
-                shadow = txt.copy()
-                shadow.fill((0, 0, 0), special_flags=pygame.BLEND_RGBA_MULT)
-                self.screen.blit(shadow, (r.x + 3, r.y + 3))
-                self.screen.blit(txt, r)
-        
-        # Draw game over screen
-        if self.game_over:
-            self.draw_game_over()
-            pygame.display.flip()
-            # After showing GAME OVER for a short time, stop main loop,
-            # so __main__ can restart from the menu.
-            if not hasattr(self, "_game_over_frames"):
-                self._game_over_frames = 0
-            self._game_over_frames += 1
-            # ~1.5 saniye sonra kapan
-            if self._game_over_frames > FPS * 1.5:
-                self.running = False
-            return
-        
-        pygame.display.flip()
+        self.view.draw()
     
     def draw_bomb_flash(self):
         """Draw radial white beams centered on last sliced bomb, like Fruit Ninja."""
@@ -2087,7 +2105,7 @@ class FruitNinja:
 
 class MenuScreen:
     """Main menu screen matching Fruit Ninja style with START and SETTINGS buttons."""
-    def __init__(self, game: FruitNinja):
+    def __init__(self, game: 'FruitNinjaViewModel'):
         # reuse game resources (screen, wood texture, images, font)
         self.game = game
         self.screen = game.screen
@@ -2755,9 +2773,13 @@ class MenuScreen:
             if not sliced.is_alive() and len(particles) == 0:
                 break
 
+# ==================================================================================================
+#                                         MAIN ENTRY POINT
+# ==================================================================================================
+
 if __name__ == "__main__":
     while True:
-        game = FruitNinja()
+        game = FruitNinjaViewModel()
         # Show a short loading screen before starting gameplay
         try:
             game.show_loading_screen()
