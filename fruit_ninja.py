@@ -1419,7 +1419,184 @@ class FruitNinja:
             pygame.draw.polygon(self.screen, WHITE, points)
 
     def open_settings_overlay(self):
-        """Open an in-game settings overlay for sound, name and difficulty."""
+        """Open an in-game settings overlay with cartoonish UI style."""
+        in_settings = True
+        
+        # Local copies of settings
+        name_text = self.player_name
+        music_on = self.music_enabled
+        sfx_on = self.sfx_enabled
+        modes = ["Kolay", "Orta", "Zor"]
+        mode_index = modes.index(self.game_mode) if self.game_mode in modes else 1
+        active_field = "none"
+
+        # UI Constants
+        PANEL_W, PANEL_H = 400, 450
+        PANEL_X = (SCREEN_WIDTH - PANEL_W) // 2
+        PANEL_Y = (SCREEN_HEIGHT - PANEL_H) // 2
+        
+        # Colors
+        BEIGE = (245, 235, 210)
+        WOOD_DARK = (101, 67, 33)
+        WOOD_LIGHT = (139, 90, 43)
+        GREEN_BTN = (116, 194, 73)
+        RED_BTN = (229, 89, 71)
+        BLUE_BTN = (66, 165, 245)
+        WHITE = (255, 255, 255)
+        
+        # Button Rects
+        music_btn_center = (PANEL_X + 100, PANEL_Y + 100)
+        sfx_btn_center = (PANEL_X + 300, PANEL_Y + 100)
+        btn_radius = 40
+        
+        mode_btn_rect = pygame.Rect(PANEL_X + 50, PANEL_Y + 180, 300, 60)
+        name_btn_rect = pygame.Rect(PANEL_X + 50, PANEL_Y + 260, 300, 60)
+        back_btn_rect = pygame.Rect(PANEL_X + 50, PANEL_Y + 350, 300, 60)
+
+        while in_settings:
+            # Event Handling
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                elif event.type == pygame.KEYDOWN:
+                    if active_field == "name":
+                        if event.key == pygame.K_RETURN:
+                            active_field = "none"
+                        elif event.key == pygame.K_BACKSPACE:
+                            name_text = name_text[:-1]
+                        else:
+                            ch = event.unicode
+                            if ch.isprintable() and len(name_text) < 12:
+                                name_text += ch
+                    else:
+                        if event.key in (pygame.K_ESCAPE, pygame.K_RETURN):
+                            in_settings = False
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    mx, my = event.pos
+                    
+                    # Check Music Button
+                    if (mx - music_btn_center[0])**2 + (my - music_btn_center[1])**2 <= btn_radius**2:
+                        music_on = not music_on
+                        try:
+                            self.music_enabled = music_on
+                            self.update_background_music()
+                        except: pass
+                        
+                    # Check SFX Button
+                    elif (mx - sfx_btn_center[0])**2 + (my - sfx_btn_center[1])**2 <= btn_radius**2:
+                        sfx_on = not sfx_on
+                        
+                    # Check Mode Button
+                    elif mode_btn_rect.collidepoint(mx, my):
+                        mode_index = (mode_index + 1) % len(modes)
+                        
+                    # Check Name Button
+                    elif name_btn_rect.collidepoint(mx, my):
+                        active_field = "name"
+                        
+                    # Check Back Button
+                    elif back_btn_rect.collidepoint(mx, my):
+                        in_settings = False
+                        
+                    # Click outside panel to close
+                    elif not pygame.Rect(PANEL_X, PANEL_Y, PANEL_W, PANEL_H).collidepoint(mx, my):
+                        in_settings = False
+
+            # Drawing
+            # 1. Background (Dark Overlay)
+            overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 150))
+            self.screen.blit(overlay, (0, 0))
+            
+            # 2. Main Panel (Beige with Wood Border)
+            # Border
+            pygame.draw.rect(self.screen, WOOD_DARK, (PANEL_X - 10, PANEL_Y - 10, PANEL_W + 20, PANEL_H + 20), border_radius=30)
+            # Inner Panel
+            pygame.draw.rect(self.screen, BEIGE, (PANEL_X, PANEL_Y, PANEL_W, PANEL_H), border_radius=20)
+            
+            # 3. Header (Wooden Sign)
+            header_w, header_h = 250, 70
+            header_x = (SCREEN_WIDTH - header_w) // 2
+            header_y = PANEL_Y - 35
+            # Draw header shape
+            pygame.draw.rect(self.screen, WOOD_LIGHT, (header_x, header_y, header_w, header_h), border_radius=15)
+            pygame.draw.rect(self.screen, WOOD_DARK, (header_x, header_y, header_w, header_h), 3, border_radius=15)
+            # Header Text
+            title_surf = self.font_large.render("AYARLAR", True, (255, 220, 100))
+            title_rect = title_surf.get_rect(center=(SCREEN_WIDTH // 2, header_y + header_h // 2))
+            self.screen.blit(title_surf, title_rect)
+            
+            # Helper to draw rounded button with shadow
+            def draw_button(rect, color, text, text_color=WHITE):
+                # Shadow
+                shadow_rect = rect.copy()
+                shadow_rect.y += 5
+                pygame.draw.rect(self.screen, (max(0, color[0]-50), max(0, color[1]-50), max(0, color[2]-50)), shadow_rect, border_radius=20)
+                # Main body
+                pygame.draw.rect(self.screen, color, rect, border_radius=20)
+                # Highlight (top edge)
+                highlight_rect = pygame.Rect(rect.x+5, rect.y+5, rect.width-10, rect.height//2)
+                pygame.draw.rect(self.screen, (min(255, color[0]+30), min(255, color[1]+30), min(255, color[2]+30)), highlight_rect, border_radius=20)
+                
+                # Text
+                if text:
+                    txt_surf = self.font_medium.render(text, True, text_color)
+                    txt_rect = txt_surf.get_rect(center=rect.center)
+                    self.screen.blit(txt_surf, txt_rect)
+            
+            # Helper for round buttons
+            def draw_round_btn(center, radius, color, label, is_on):
+                cx, cy = center
+                # Shadow
+                pygame.draw.circle(self.screen, (max(0, color[0]-50), max(0, color[1]-50), max(0, color[2]-50)), (cx, cy+5), radius)
+                # Body
+                main_color = color if is_on else (150, 150, 150)
+                pygame.draw.circle(self.screen, main_color, center, radius)
+                
+                # Icon/Text inside
+                status = "ON" if is_on else "OFF"
+                st_surf = self.font_small.render(status, True, WHITE)
+                st_rect = st_surf.get_rect(center=center)
+                self.screen.blit(st_surf, st_rect)
+                
+                # Label below
+                lbl_surf = self.font_small.render(label, True, WOOD_DARK)
+                lbl_rect = lbl_surf.get_rect(center=(cx, cy + radius + 20))
+                self.screen.blit(lbl_surf, lbl_rect)
+
+            # Draw Music & SFX
+            draw_round_btn(music_btn_center, btn_radius, GREEN_BTN, "Müzik", music_on)
+            draw_round_btn(sfx_btn_center, btn_radius, GREEN_BTN, "Ses", sfx_on)
+            
+            # Draw Mode Button
+            draw_button(mode_btn_rect, GREEN_BTN, f"Mod: {modes[mode_index]}")
+            
+            # Draw Name Button
+            name_display = name_text + ("_" if active_field == "name" and (pygame.time.get_ticks() // 500) % 2 == 0 else "")
+            draw_button(name_btn_rect, BLUE_BTN, f"İsim: {name_display or '...'}")
+            
+            # Draw Back Button
+            draw_button(back_btn_rect, RED_BTN, "KAYDET & ÇIK")
+
+            pygame.display.flip()
+            self.clock.tick(60)
+
+        # Apply changes
+        self.player_name = name_text or "Player"
+        self.music_enabled = music_on
+        self.sfx_enabled = sfx_on
+        self.game_mode = modes[mode_index]
+        self.apply_game_mode_difficulty()
+        try:
+            self.update_background_music()
+        except Exception:
+            pass
+        if hasattr(self, "save_settings"):
+            self.save_settings()
+
+    def open_settings_overlay_old(self):
+        """(Deprecated) Old settings overlay."""
         in_settings = True
         name_text = self.player_name
         music_on = self.music_enabled
@@ -2069,24 +2246,48 @@ class MenuScreen:
             self.clock.tick(60)
 
     def show_settings_screen(self):
-        """Settings screen: toggle sound, change name, choose game mode (still used for menu, but main game has its own overlay)."""
+        """Settings screen with cartoonish UI style matching the reference image."""
         in_settings = True
-        # Local copies of settings (so user can cancel in future if needed)
+        
+        # Local copies of settings
         name_text = self.game.player_name
         music_on = self.game.music_enabled
         sfx_on = self.game.sfx_enabled
         modes = ["Kolay", "Orta", "Zor"]
-        mode_index = modes.index(self.game.game_mode) if self.game.game_mode in modes else 1  # Default to "Orta"
-        active_field = "none"  # "name" for editing
+        mode_index = modes.index(self.game.game_mode) if self.game.game_mode in modes else 1
+        active_field = "none"
+
+        # UI Constants
+        PANEL_W, PANEL_H = 400, 450
+        PANEL_X = (SCREEN_WIDTH - PANEL_W) // 2
+        PANEL_Y = (SCREEN_HEIGHT - PANEL_H) // 2
+        
+        # Colors
+        BEIGE = (245, 235, 210)
+        WOOD_DARK = (101, 67, 33)
+        WOOD_LIGHT = (139, 90, 43)
+        GREEN_BTN = (116, 194, 73)
+        RED_BTN = (229, 89, 71)
+        BLUE_BTN = (66, 165, 245)
+        WHITE = (255, 255, 255)
+        
+        # Button Rects
+        music_btn_center = (PANEL_X + 100, PANEL_Y + 100)
+        sfx_btn_center = (PANEL_X + 300, PANEL_Y + 100)
+        btn_radius = 40
+        
+        mode_btn_rect = pygame.Rect(PANEL_X + 50, PANEL_Y + 180, 300, 60)
+        name_btn_rect = pygame.Rect(PANEL_X + 50, PANEL_Y + 260, 300, 60)
+        back_btn_rect = pygame.Rect(PANEL_X + 50, PANEL_Y + 350, 300, 60)
 
         while in_settings:
+            # Event Handling
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     pygame.quit()
                     sys.exit()
                 elif event.type == pygame.KEYDOWN:
                     if active_field == "name":
-                        # Basic text input handling
                         if event.key == pygame.K_RETURN:
                             active_field = "none"
                         elif event.key == pygame.K_BACKSPACE:
@@ -2096,80 +2297,117 @@ class MenuScreen:
                             if ch.isprintable() and len(name_text) < 12:
                                 name_text += ch
                     else:
-                        # ESC veya Enter ile çık
                         if event.key in (pygame.K_ESCAPE, pygame.K_RETURN):
                             in_settings = False
                 elif event.type == pygame.MOUSEBUTTONDOWN:
                     mx, my = event.pos
-                    # Click regions for toggles and fields
-                    # Music toggle rect
-                    if 220 <= mx <= 420 and 210 <= my <= 245:
+                    
+                    # Check Music Button
+                    if (mx - music_btn_center[0])**2 + (my - music_btn_center[1])**2 <= btn_radius**2:
                         music_on = not music_on
-                        # Apply immediately so user can hear/stop music while in menu
                         try:
                             self.game.music_enabled = music_on
                             self.game.update_background_music()
-                        except Exception:
-                            pass
-                    # SFX toggle rect
-                    elif 220 <= mx <= 420 and 250 <= my <= 285:
+                        except: pass
+                        
+                    # Check SFX Button
+                    elif (mx - sfx_btn_center[0])**2 + (my - sfx_btn_center[1])**2 <= btn_radius**2:
                         sfx_on = not sfx_on
-                    # Mode change rect
-                    elif 220 <= mx <= 420 and 290 <= my <= 325:
+                        
+                    # Check Mode Button
+                    elif mode_btn_rect.collidepoint(mx, my):
                         mode_index = (mode_index + 1) % len(modes)
-                    # Name field rect
-                    elif 220 <= mx <= 520 and 330 <= my <= 365:
+                        
+                    # Check Name Button
+                    elif name_btn_rect.collidepoint(mx, my):
                         active_field = "name"
-                    else:
-                        # Click outside → close & save
+                        
+                    # Check Back Button
+                    elif back_btn_rect.collidepoint(mx, my):
+                        in_settings = False
+                        
+                    # Click outside panel to close
+                    elif not pygame.Rect(PANEL_X, PANEL_Y, PANEL_W, PANEL_H).collidepoint(mx, my):
                         in_settings = False
 
-            # Background
+            # Drawing
+            # 1. Background (Wood texture + Dark Overlay)
             self.screen.blit(self.wood_texture, (0, 0))
-
-            # Semi-transparent overlay
             overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-            overlay.fill((0, 0, 0, 180))
+            overlay.fill((0, 0, 0, 150))
             self.screen.blit(overlay, (0, 0))
+            
+            # 2. Main Panel (Beige with Wood Border)
+            # Border
+            pygame.draw.rect(self.screen, WOOD_DARK, (PANEL_X - 10, PANEL_Y - 10, PANEL_W + 20, PANEL_H + 20), border_radius=30)
+            # Inner Panel
+            pygame.draw.rect(self.screen, BEIGE, (PANEL_X, PANEL_Y, PANEL_W, PANEL_H), border_radius=20)
+            
+            # 3. Header (Wooden Sign)
+            header_w, header_h = 250, 70
+            header_x = (SCREEN_WIDTH - header_w) // 2
+            header_y = PANEL_Y - 35
+            # Draw header shape
+            pygame.draw.rect(self.screen, WOOD_LIGHT, (header_x, header_y, header_w, header_h), border_radius=15)
+            pygame.draw.rect(self.screen, WOOD_DARK, (header_x, header_y, header_w, header_h), 3, border_radius=15)
+            # Header Text
+            title_surf = self.game.font_large.render("AYARLAR", True, (255, 220, 100))
+            title_rect = title_surf.get_rect(center=(SCREEN_WIDTH // 2, header_y + header_h // 2))
+            self.screen.blit(title_surf, title_rect)
+            
+            # Helper to draw rounded button with shadow
+            def draw_button(rect, color, text, text_color=WHITE):
+                # Shadow
+                shadow_rect = rect.copy()
+                shadow_rect.y += 5
+                pygame.draw.rect(self.screen, (max(0, color[0]-50), max(0, color[1]-50), max(0, color[2]-50)), shadow_rect, border_radius=20)
+                # Main body
+                pygame.draw.rect(self.screen, color, rect, border_radius=20)
+                # Highlight (top edge)
+                highlight_rect = pygame.Rect(rect.x+5, rect.y+5, rect.width-10, rect.height//2)
+                pygame.draw.rect(self.screen, (min(255, color[0]+30), min(255, color[1]+30), min(255, color[2]+30)), highlight_rect, border_radius=20)
+                
+                # Text
+                if text:
+                    txt_surf = self.font_medium.render(text, True, text_color)
+                    txt_rect = txt_surf.get_rect(center=rect.center)
+                    self.screen.blit(txt_surf, txt_rect)
+            
+            # Helper for round buttons
+            def draw_round_btn(center, radius, color, label, is_on):
+                cx, cy = center
+                # Shadow
+                pygame.draw.circle(self.screen, (max(0, color[0]-50), max(0, color[1]-50), max(0, color[2]-50)), (cx, cy+5), radius)
+                # Body
+                main_color = color if is_on else (150, 150, 150)
+                pygame.draw.circle(self.screen, main_color, center, radius)
+                # Highlight
+                pygame.draw.circle(self.screen, (255, 255, 255, 50), (cx-10, cy-10), 10)
+                
+                # Icon/Text inside
+                status = "ON" if is_on else "OFF"
+                st_surf = self.font_small.render(status, True, WHITE)
+                st_rect = st_surf.get_rect(center=center)
+                self.screen.blit(st_surf, st_rect)
+                
+                # Label below
+                lbl_surf = self.font_small.render(label, True, WOOD_DARK)
+                lbl_rect = lbl_surf.get_rect(center=(cx, cy + radius + 20))
+                self.screen.blit(lbl_surf, lbl_rect)
 
-            # Title
-            title = self.title_font.render("AYARLAR", True, YELLOW)
-            title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 120))
-            self.screen.blit(title, title_rect)
-
-            # Music toggle
-            music_label = self.font_small.render("Müzik:", True, WHITE)
-            music_value = self.font_small.render("AÇIK" if music_on else "KAPALI", True, YELLOW)
-            self.screen.blit(music_label, (180, 215))
-            self.screen.blit(music_value, (320, 215))
-
-            # SFX toggle
-            sfx_label = self.font_small.render("Ses Efektleri:", True, WHITE)
-            sfx_value = self.font_small.render("AÇIK" if sfx_on else "KAPALI", True, YELLOW)
-            self.screen.blit(sfx_label, (180, 255))
-            self.screen.blit(sfx_value, (320, 255))
-
-            # Mode selection
-            mode_label = self.font_small.render("Oyun Modu:", True, WHITE)
-            mode_value = self.font_small.render(modes[mode_index], True, YELLOW)
-            self.screen.blit(mode_label, (180, 295))
-            self.screen.blit(mode_value, (320, 295))
-
-            # Name field
-            name_label = self.font_small.render("İsim:", True, WHITE)
-            self.screen.blit(name_label, (180, 335))
-            # Draw name box
-            name_rect = pygame.Rect(220, 330, 260, 35)
-            pygame.draw.rect(self.screen, (80, 80, 80), name_rect, border_radius=6)
-            border_color = YELLOW if active_field == "name" else WHITE
-            pygame.draw.rect(self.screen, border_color, name_rect, width=2, border_radius=6)
-            name_surf = self.font_small.render(name_text or "İsminiz...", True, (230, 230, 230))
-            self.screen.blit(name_surf, (name_rect.x + 8, name_rect.y + 8))
-
-            # Footer hint
-            hint = self.font_small.render("Değişiklikleri kaydetmek için herhangi bir tuşa / alana tıkla", True, WHITE)
-            hint_rect = hint.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 40))
-            self.screen.blit(hint, hint_rect)
+            # Draw Music & SFX
+            draw_round_btn(music_btn_center, btn_radius, GREEN_BTN, "Müzik", music_on)
+            draw_round_btn(sfx_btn_center, btn_radius, GREEN_BTN, "Ses", sfx_on)
+            
+            # Draw Mode Button
+            draw_button(mode_btn_rect, GREEN_BTN, f"Mod: {modes[mode_index]}")
+            
+            # Draw Name Button
+            name_display = name_text + ("_" if active_field == "name" and (pygame.time.get_ticks() // 500) % 2 == 0 else "")
+            draw_button(name_btn_rect, BLUE_BTN, f"İsim: {name_display or '...'}")
+            
+            # Draw Back Button
+            draw_button(back_btn_rect, RED_BTN, "KAYDET & ÇIK")
 
             pygame.display.flip()
             self.clock.tick(60)
