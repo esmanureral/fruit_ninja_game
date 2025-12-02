@@ -467,12 +467,43 @@ class FruitNinja:
             header.fill((240, 220, 180, 220))
             self.screen.blit(header, (0, 0))
 
-            # Game title
-            title_text = self.font_title.render("FRUIT NINJA", True, (255, 255, 255))
-            title_shadow = self.font_title.render("FRUIT NINJA", True, (0, 0, 0))
-            t_rect = title_text.get_rect(left=40, centery=header_height // 2)
-            self.screen.blit(title_shadow, (t_rect.x + 4, t_rect.y + 4))
-            self.screen.blit(title_text, t_rect)
+            # Game title (Images instead of text)
+            # Load images
+            fruit_img = None
+            ninja_img = None
+            img_height = 80  # Height for the header logo
+            
+            try:
+                fruit_img_path = os.path.join("images", "fruit_logo.png")
+                if os.path.exists(fruit_img_path):
+                    fruit_img = pygame.image.load(fruit_img_path)
+                    scale = img_height / fruit_img.get_height()
+                    w = int(fruit_img.get_width() * scale)
+                    fruit_img = pygame.transform.smoothscale(fruit_img, (w, img_height))
+            except:
+                pass
+                
+            try:
+                ninja_img_path = os.path.join("images", "ninja.png")
+                if os.path.exists(ninja_img_path):
+                    ninja_img = pygame.image.load(ninja_img_path)
+                    scale = img_height / ninja_img.get_height()
+                    w = int(ninja_img.get_width() * scale)
+                    ninja_img = pygame.transform.smoothscale(ninja_img, (w, img_height))
+            except:
+                pass
+                
+            # Draw images
+            start_x = 40
+            current_x = start_x
+            y_pos = (header_height - img_height) // 2
+            
+            if fruit_img:
+                self.screen.blit(fruit_img, (current_x, y_pos))
+                current_x += fruit_img.get_width() + 20
+                
+            if ninja_img:
+                self.screen.blit(ninja_img, (current_x, y_pos))
 
             # Sliced watermelon in the center area
             center_y = SCREEN_HEIGHT // 2 + 20
@@ -1681,65 +1712,65 @@ class MenuScreen:
         self.sign_text_color = (69, 39, 19)  # Dark brown for text
 
     def draw_colored_title(self):
-        """Draw FRUIT NINJA title with centered bold letters and brush stroke"""
-        fruit_letters = [
-            ("F", (170, 64, 255)),
-            ("R", (255, 85, 85)),
-            ("U", (255, 180, 57)),
-            ("I", (255, 238, 88)),
-            ("T", (57, 255, 128)),
-        ]
-        ninja_letters = ["N", "I", "N", "J", "A"]
-        metallic_colors = [(200, 200, 200), (230, 230, 230), (210, 210, 210), (255, 255, 255), (200, 200, 200)]
+        """Draw FRUIT NINJA title using images instead of text"""
+        # Load images
+        fruit_img = None
+        ninja_img = None
+        fruit_img_width = 0
+        ninja_img_width = 0
+        img_height = 150  # Larger images for clear visibility
+        
+        try:
+            fruit_img_path = os.path.join("images", "fruit_logo.png")
+            if os.path.exists(fruit_img_path):
+                fruit_img = pygame.image.load(fruit_img_path)
+                scale = img_height / fruit_img.get_height()
+                fruit_img_width = int(fruit_img.get_width() * scale)
+                fruit_img = pygame.transform.smoothscale(fruit_img, (fruit_img_width, img_height))
+        except Exception as e:
+            print(f"⚠ Fruit image could not be loaded: {e}")
+        
+        try:
+            ninja_img_path = os.path.join("images", "ninja.png")
+            if os.path.exists(ninja_img_path):
+                ninja_img = pygame.image.load(ninja_img_path)
+                scale = img_height / ninja_img.get_height()
+                ninja_img_width = int(ninja_img.get_width() * scale)
+                ninja_img = pygame.transform.smoothscale(ninja_img, (ninja_img_width, img_height))
+        except Exception as e:
+            print(f"⚠ Ninja image could not be loaded: {e}")
         
         # Brush-stroke background behind the title
-        brush_height = 150
+        brush_height = 200  # Taller to accommodate larger images
         brush_surface = pygame.Surface((SCREEN_WIDTH, brush_height), pygame.SRCALPHA)
         pygame.draw.rect(brush_surface, (0, 0, 0, 120), brush_surface.get_rect(), border_radius=60)
         highlight_rect = pygame.Rect(20, 20, SCREEN_WIDTH - 40, brush_height - 40)
         pygame.draw.rect(brush_surface, (120, 60, 30, 140), highlight_rect, border_radius=40)
-        self.screen.blit(brush_surface, (0, 40))
+        self.screen.blit(brush_surface, (0, 30))
         
-        # Measure widths to center
-        spacing = 6
-        fruit_surfs = [self.title_font.render(letter, True, color) for letter, color in fruit_letters]
-        fruit_width = sum(s.get_width() for s in fruit_surfs) + spacing * (len(fruit_surfs) - 1)
-        ninja_surfs = [
-            self.ninja_font.render(letter, True, metallic_colors[i % len(metallic_colors)])
-            for i, letter in enumerate(ninja_letters)
-        ]
-        ninja_width = sum(s.get_width() for s in ninja_surfs) + spacing * (len(ninja_surfs) - 1)
+        # Calculate total width and center position
+        image_spacing = 30
+        total_width = fruit_img_width + ninja_img_width + image_spacing
         
-        y_fruit = 70
-        y_ninja = y_fruit + self.title_font.get_height() - 10
-        start_x_fruit = (SCREEN_WIDTH - fruit_width - ninja_width - 30) // 2
-        start_x_ninja = start_x_fruit + fruit_width + 30
+        y_center = 120  # Vertical center for images
+        start_x = (SCREEN_WIDTH - total_width) // 2
         
-        # Draw FRUIT letters with shadows and highlights
-        x = start_x_fruit
-        for idx, (surf, (letter, color)) in enumerate(zip(fruit_surfs, fruit_letters)):
-            shadow = self.title_font.render(letter, True, (0, 0, 0))
-            glow = self.title_font.render(letter, True, (255, 255, 255))
-            self.screen.blit(shadow, (x + 5, y_fruit + 8))
-            self.screen.blit(surf, (x, y_fruit))
-            glow.set_alpha(80)
-            self.screen.blit(glow, (x, y_fruit - 4))
-            if letter == "T":
-                leaf_y = y_fruit - 20
-                pygame.draw.circle(self.screen, (0, 200, 0), (x - 6, leaf_y), 6)
-                pygame.draw.circle(self.screen, (0, 200, 0), (x + surf.get_width() + 6, leaf_y + 2), 6)
-            x += surf.get_width() + spacing
+        # Draw fruit image
+        if fruit_img:
+            fruit_img_y = y_center - img_height // 2
+            self.screen.blit(fruit_img, (start_x, fruit_img_y))
         
-        # Draw NINJA letters with metallic effect
-        x = start_x_ninja
-        for surf, letter in zip(ninja_surfs, ninja_letters):
-            shadow = self.ninja_font.render(letter, True, (0, 0, 0))
-            self.screen.blit(shadow, (x + 6, y_ninja + 10))
-            self.screen.blit(surf, (x, y_ninja))
-            x += surf.get_width() + spacing
+        # Draw ninja image
+        if ninja_img:
+            ninja_x = start_x + fruit_img_width + image_spacing
+            ninja_img_y = y_center - img_height // 2
+            self.screen.blit(ninja_img, (ninja_x, ninja_img_y))
         
-        tm_surf = pygame.font.Font(None, 32).render("™", True, (255, 255, 255))
-        self.screen.blit(tm_surf, (x - 10, y_ninja))
+        # Draw TM symbol after ninja image
+        tm_surf = pygame.font.Font(None, 42).render("™", True, (255, 255, 255))
+        tm_x = start_x + total_width + 10
+        tm_y = y_center - img_height // 2 + 10
+        self.screen.blit(tm_surf, (tm_x, tm_y))
 
     def point_line_distance(self, px, py, x1, y1, x2, y2):
         """Calculate distance from point to line segment"""
