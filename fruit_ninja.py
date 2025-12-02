@@ -59,11 +59,12 @@ SWIPE_WATER_EDGE = (10, 80, 150)
 SWIPE_WATER_MID = (80, 180, 255)
 SWIPE_WATER_CORE = (230, 245, 255)
 
-# UI Constants
-TOP_BAR_HEIGHT = 80
-BOTTOM_BAR_HEIGHT = 60
-GAME_AREA_Y = TOP_BAR_HEIGHT
-GAME_AREA_HEIGHT = SCREEN_HEIGHT - TOP_BAR_HEIGHT - BOTTOM_BAR_HEIGHT
+# UI / Game area constants
+# Full-screen wood background like original Fruit Ninja
+TOP_BAR_HEIGHT = 0
+BOTTOM_BAR_HEIGHT = 0
+GAME_AREA_Y = 0
+GAME_AREA_HEIGHT = SCREEN_HEIGHT
 MAX_LIVES = 3
 
 def brighten_color(color: Tuple[int, int, int], factor: float = 1.25, offset: int = 20) -> Tuple[int, int, int]:
@@ -271,11 +272,11 @@ class Bomb:
             for i in range(3):
                 angle = self.angle + i * 120
                 angle_rad = angle * math.pi / 180
-            start_x = int(self.x + math.cos(angle_rad) * (current_radius - 5))
-            start_y = int(self.y + math.sin(angle_rad) * (current_radius - 5))
-            end_x = int(self.x + math.cos(angle_rad) * (current_radius + 10))
-            end_y = int(self.y + math.sin(angle_rad) * (current_radius + 10))
-            pygame.draw.line(screen, YELLOW, (start_x, start_y), (end_x, end_y), 2)
+                start_x = int(self.x + math.cos(angle_rad) * (current_radius - 5))
+                start_y = int(self.y + math.sin(angle_rad) * (current_radius - 5))
+                end_x = int(self.x + math.cos(angle_rad) * (current_radius + 10))
+                end_y = int(self.y + math.sin(angle_rad) * (current_radius + 10))
+                pygame.draw.line(screen, YELLOW, (start_x, start_y), (end_x, end_y), 2)
     
     def get_rect(self):
         return pygame.Rect(self.x - self.radius, self.y - self.radius, 
@@ -378,6 +379,14 @@ class FruitNinja:
         
         # Load fruit images
         self.fruit_images = self.load_fruit_images()
+        # Optional sword image for swipe cursor
+        self.sword_image = None
+        try:
+            sword_path = os.path.join(IMAGES_FOLDER, "sword.png")
+            if os.path.exists(sword_path):
+                self.sword_image = pygame.image.load(sword_path).convert_alpha()
+        except Exception as e:
+            print(f"⚠ Kılıç resmi yüklenemedi: {e}")
         # Load sounds
         self.sounds = self.load_sounds()
         # Start/stop background music according to settings
@@ -418,6 +427,124 @@ class FruitNinja:
         
         # Load best score from file if exists
         self.load_best_score()
+
+        # (Settings icon rect was used previously for in-game gear; now disabled)
+        self.settings_icon_rect = pygame.Rect(0, 0, 0, 0)
+
+    def show_loading_screen(self, duration_ms: int = 0):
+        """Show main menu-style start screen with sliced watermelon and START / SETTINGS buttons."""
+        whole = None
+        halves = None
+        if "watermelon" in self.fruit_images:
+            whole = self.fruit_images["watermelon"].get("whole")
+            halves = self.fruit_images["watermelon"].get("halves")
+        running_menu = True
+
+        while running_menu:
+            now = pygame.time.get_ticks()
+            elapsed = now  # use global time only for animation
+
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    mx, my = event.pos
+                    if start_button.collidepoint(mx, my):
+                        # Start game
+                        running_menu = False
+                        break
+                    elif settings_button.collidepoint(mx, my):
+                        # Open in-game style settings overlay, then return to menu
+                        self.open_settings_overlay()
+
+            # Background
+            self.screen.blit(self.wood_texture, (0, 0))
+
+            # Semi-bright top area like the original splash
+            header_height = 140
+            header = pygame.Surface((SCREEN_WIDTH, header_height), pygame.SRCALPHA)
+            header.fill((240, 220, 180, 220))
+            self.screen.blit(header, (0, 0))
+
+            # Game title
+            title_text = self.font_title.render("FRUIT NINJA", True, (255, 255, 255))
+            title_shadow = self.font_title.render("FRUIT NINJA", True, (0, 0, 0))
+            t_rect = title_text.get_rect(left=40, centery=header_height // 2)
+            self.screen.blit(title_shadow, (t_rect.x + 4, t_rect.y + 4))
+            self.screen.blit(title_text, t_rect)
+
+            # Sliced watermelon in the center area
+            center_y = SCREEN_HEIGHT // 2 + 20
+            base_x = SCREEN_WIDTH // 2
+
+            # Optional faint whole watermelon in the back
+            if whole:
+                size = 160
+                scale = size / max(whole.get_width(), whole.get_height())
+                w = int(whole.get_width() * scale)
+                h = int(whole.get_height() * scale)
+                whole_s = pygame.transform.smoothscale(whole, (w, h))
+                ghost = whole_s.copy()
+                ghost.set_alpha(80)
+                rect = ghost.get_rect(center=(base_x, center_y - 40))
+                self.screen.blit(ghost, rect)
+
+            # Front sliced halves rotating slowly
+            if halves and len(halves) >= 2:
+                left_half, right_half = halves[0], halves[1]
+                for idx, img in enumerate((left_half, right_half)):
+                    size = 150
+                    scale = size / max(img.get_width(), img.get_height())
+                    w = int(img.get_width() * scale)
+                    h = int(img.get_height() * scale)
+                    img_s = pygame.transform.smoothscale(img, (w, h))
+                    offset_x = -80 if idx == 0 else 80
+                    base_angle = -18 if idx == 0 else 18
+                    # gentle swing
+                    swing = 4 * math.sin(elapsed / 450.0)
+                    total_angle = base_angle + (swing if idx == 0 else -swing)
+                    rotated = pygame.transform.rotate(img_s, total_angle)
+                    rect = rotated.get_rect(center=(base_x + offset_x, center_y + 10))
+                    self.screen.blit(rotated, rect)
+            elif whole:
+                # Fallback to a single rotating whole watermelon
+                size = 150
+                scale = size / max(whole.get_width(), whole.get_height())
+                w = int(whole.get_width() * scale)
+                h = int(whole.get_height() * scale)
+                img_s = pygame.transform.smoothscale(whole, (w, h))
+                angle = 8 * math.sin(elapsed / 700.0)
+                rotated = pygame.transform.rotate(img_s, angle)
+                r_rect = rotated.get_rect(center=(base_x, center_y))
+                self.screen.blit(rotated, r_rect)
+
+            # Buttons area
+            button_y = SCREEN_HEIGHT - 120
+            start_button = pygame.Rect(base_x - 180, button_y, 150, 50)
+            settings_button = pygame.Rect(base_x + 30, button_y, 170, 50)
+
+            # Draw START button
+            pygame.draw.rect(self.screen, (60, 150, 60), start_button, border_radius=14)
+            pygame.draw.rect(self.screen, (20, 60, 20), start_button, 3, border_radius=14)
+            start_text = self.font_medium.render("BAŞLA", True, WHITE)
+            st_rect = start_text.get_rect(center=start_button.center)
+            self.screen.blit(start_text, st_rect)
+
+            # Draw SETTINGS button
+            pygame.draw.rect(self.screen, (80, 80, 140), settings_button, border_radius=14)
+            pygame.draw.rect(self.screen, (30, 30, 70), settings_button, 3, border_radius=14)
+            set_text = self.font_small.render("AYARLARA GİT", True, WHITE)
+            set_rect = set_text.get_rect(center=settings_button.center)
+            self.screen.blit(set_text, set_rect)
+
+            # Small hint text
+            hint = self.font_small.render("Başlamak için BAŞLA'ya, ayarlar için AYARLARA GİT'e tıkla", True, WHITE)
+            hint_rect = hint.get_rect(center=(SCREEN_WIDTH // 2, button_y - 30))
+            self.screen.blit(hint, hint_rect)
+
+            pygame.display.flip()
+            self.clock.tick(60)
         
     def load_fruit_images(self):
         """Load fruit images from images folder"""
@@ -1045,44 +1172,41 @@ class FruitNinja:
         return False
     
     def draw_swipe_path(self, screen, path, color=WHITE):
-        """Draw a realistic knife/sword swipe path with glow effect"""
+        """Draw the swipe as a sword image following the last swipe segment."""
         if len(path) < 2:
             return
-        
-        # Draw multiple layers for a glowing, realistic effect
-        # Outer shadow layer (dark)
+
+        # Still draw a faint light trail for speed feeling
         for i in range(len(path) - 1):
             x1, y1 = path[i]
             x2, y2 = path[i + 1]
-            # Draw shadow offset
-            shadow_offset = 2
-            shadow_color = (20, 20, 20)
-            pygame.draw.line(screen, shadow_color, 
-                           (x1 + shadow_offset, y1 + shadow_offset),
-                           (x2 + shadow_offset, y2 + shadow_offset), 8)
-        
-        # Middle glow layer (semi-transparent bright)
-        for i in range(len(path) - 1):
-            x1, y1 = path[i]
-            x2, y2 = path[i + 1]
-            # Bright center
-            bright_color = (255, 255, 200)  # Slightly yellow-white
-            pygame.draw.line(screen, bright_color, (x1, y1), (x2, y2), 6)
-        
-        # Inner core (bright white)
-        for i in range(len(path) - 1):
-            x1, y1 = path[i]
-            x2, y2 = path[i + 1]
-            # Core bright line
-            pygame.draw.line(screen, color, (x1, y1), (x2, y2), 3)
-        
-        # Add small circles at points for smoother look
-        for point in path:
-            x, y = point
-            # Outer glow
-            pygame.draw.circle(screen, (255, 255, 200), (int(x), int(y)), 4)
-            # Inner core
-            pygame.draw.circle(screen, color, (int(x), int(y)), 2)
+            trail_color = (255, 255, 255, 80)
+            trail_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+            pygame.draw.line(trail_surface, trail_color, (x1, y1), (x2, y2), 3)
+            screen.blit(trail_surface, (0, 0))
+
+        # Use sword sprite at the end of the path (if available)
+        if self.sword_image is not None:
+            x1, y1 = path[-2]
+            x2, y2 = path[-1]
+            dx = x2 - x1
+            dy = y2 - y1
+            angle = -math.degrees(math.atan2(dy, dx))
+
+            # Scale sword image to reasonable size
+            base_len = 220
+            scale = base_len / max(self.sword_image.get_width(), 1)
+            w = int(self.sword_image.get_width() * scale)
+            h = int(self.sword_image.get_height() * scale)
+            sword = pygame.transform.smoothscale(self.sword_image, (w, h))
+            sword = pygame.transform.rotate(sword, angle)
+            rect = sword.get_rect(center=(x2, y2))
+            screen.blit(sword, rect)
+        else:
+            # Fallback: simple bright line
+            x1, y1 = path[-2]
+            x2, y2 = path[-1]
+            pygame.draw.line(screen, color, (x1, y1), (x2, y2), 4)
     
     def update(self):
         if self.show_title_screen:
@@ -1115,7 +1239,10 @@ class FruitNinja:
                 self.bomb_spawn_timer = 0
                 # Make bombs spawn more frequently as score increases (mode-based)
                 min_bomb_interval = 100 if self.game_mode == "Zor" else 180
-                self.bomb_spawn_interval = max(min_bomb_interval, self.bomb_spawn_interval - self.bomb_spawn_acceleration)
+                self.bomb_spawn_interval = max(
+                    min_bomb_interval,
+                    self.bomb_spawn_interval - self.bomb_spawn_acceleration,
+                )
         
         # Update fruits
         fruits_to_remove = []
@@ -1163,62 +1290,34 @@ class FruitNinja:
             pygame.display.flip()
             return
         
-        # Draw top bar (light blue)
-        pygame.draw.rect(self.screen, LIGHT_BLUE, (0, 0, SCREEN_WIDTH, TOP_BAR_HEIGHT))
+        # Full-screen wood background (no separate top/bottom bars)
+        self.screen.blit(self.wood_texture, (0, 0))
         
-        # Draw bottom bar (white)
-        pygame.draw.rect(self.screen, WHITE, (0, SCREEN_HEIGHT - BOTTOM_BAR_HEIGHT, SCREEN_WIDTH, BOTTOM_BAR_HEIGHT))
-        
-        # Draw game area (wooden background)
-        game_area_surface = pygame.Surface((SCREEN_WIDTH, GAME_AREA_HEIGHT))
-        game_area_surface.blit(self.wood_texture, (0, -GAME_AREA_Y))
-        self.screen.blit(game_area_surface, (0, GAME_AREA_Y))
-        
-        # Draw border between areas
-        pygame.draw.line(self.screen, BLACK, (0, TOP_BAR_HEIGHT), (SCREEN_WIDTH, TOP_BAR_HEIGHT), 2)
-        pygame.draw.line(self.screen, BLACK, (0, SCREEN_HEIGHT - BOTTOM_BAR_HEIGHT), 
-                        (SCREEN_WIDTH, SCREEN_HEIGHT - BOTTOM_BAR_HEIGHT), 2)
-        
-        # Draw fruits (only in game area, don't let them overflow to top bar)
+        # Draw fruits
         for fruit in self.fruits:
-            # Only draw if fruit is below the top bar
-            if fruit.y - fruit.radius >= TOP_BAR_HEIGHT:
-                fruit.draw(self.screen)
+            fruit.draw(self.screen)
         
-        # Draw bombs (only in game area)
+        # Draw bombs
         for bomb in self.bombs:
-            # Only draw if bomb is below the top bar
-            if bomb.y - bomb.radius >= TOP_BAR_HEIGHT:
-                bomb.draw(self.screen)
+            bomb.draw(self.screen)
         
-        # Draw particles (behind sliced fruits, only in game area)
+        # Draw particles (behind sliced fruits)
         for particle in self.particles:
-            # Only draw if particle is below the top bar
-            if particle.y >= TOP_BAR_HEIGHT:
-                particle.draw(self.screen)
+            particle.draw(self.screen)
         
-        # Draw sliced fruits (halves flying apart) - on top of particles, only in game area
+        # Draw sliced fruits (halves flying apart) - on top of particles
         for sliced_fruit in self.sliced_fruits:
-            # Only draw if sliced fruit is below the top bar
-            if sliced_fruit.half1_y - 20 >= TOP_BAR_HEIGHT and sliced_fruit.half2_y - 20 >= TOP_BAR_HEIGHT:
-                sliced_fruit.draw(self.screen)
-
+            sliced_fruit.draw(self.screen)
+        
         # If a bomb flash is active, draw it on top of everything and skip UI/game-over for now
         if self.game_over and self.bomb_flash_active and self.bomb_flash_center:
             self.draw_bomb_flash()
             pygame.display.flip()
             return
         
-        # Draw swipe path (only in game area)
+        # Draw swipe path across full screen
         if len(self.swipe_path) > 1:
-            # Filter swipe path to only show in game area
-            filtered_path = []
-            for point in self.swipe_path:
-                x, y = point
-                if GAME_AREA_Y <= y <= GAME_AREA_Y + GAME_AREA_HEIGHT:
-                    filtered_path.append(point)
-            if len(filtered_path) > 1:
-                self.draw_swipe_path(self.screen, filtered_path)
+            self.draw_swipe_path(self.screen, self.swipe_path)
         
         # Draw UI elements
         self.draw_ui()
@@ -1249,7 +1348,7 @@ class FruitNinja:
             return
         
         pygame.display.flip()
-
+    
     def draw_bomb_flash(self):
         """Draw radial white beams centered on last sliced bomb, like Fruit Ninja."""
         cx, cy = self.bomb_flash_center
@@ -1287,39 +1386,114 @@ class FruitNinja:
 
             points = [(cx, cy), (x2, y2), (x3, y3)]
             pygame.draw.polygon(self.screen, WHITE, points)
+
+    def open_settings_overlay(self):
+        """Open an in-game settings overlay for sound, name and difficulty."""
+        in_settings = True
+        name_text = self.player_name
+        music_on = self.music_enabled
+        sfx_on = self.sfx_enabled
+        modes = ["Kolay", "Orta", "Zor"]
+        mode_index = modes.index(self.game_mode) if self.game_mode in modes else 1
+        active_field = "none"
+
+        while in_settings:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                elif event.type == pygame.KEYDOWN:
+                    if active_field == "name":
+                        if event.key == pygame.K_RETURN:
+                            active_field = "none"
+                        elif event.key == pygame.K_BACKSPACE:
+                            name_text = name_text[:-1]
+                        else:
+                            ch = event.unicode
+                            if ch.isprintable() and len(name_text) < 12:
+                                name_text += ch
+                    else:
+                        if event.key in (pygame.K_ESCAPE, pygame.K_RETURN):
+                            in_settings = False
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    mx, my = event.pos
+                    if 220 <= mx <= 420 and 210 <= my <= 245:
+                        music_on = not music_on
+                        try:
+                            self.music_enabled = music_on
+                            self.update_background_music()
+                        except Exception:
+                            pass
+                    elif 220 <= mx <= 420 and 250 <= my <= 285:
+                        sfx_on = not sfx_on
+                    elif 220 <= mx <= 420 and 290 <= my <= 325:
+                        mode_index = (mode_index + 1) % len(modes)
+                    elif 220 <= mx <= 520 and 330 <= my <= 365:
+                        active_field = "name"
+                    else:
+                        in_settings = False
+
+            # Background snapshot: dark overlay over current game
+            overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 200))
+            self.screen.blit(overlay, (0, 0))
+
+            # Panel
+            panel_rect = pygame.Rect(120, 120, SCREEN_WIDTH - 240, SCREEN_HEIGHT - 260)
+            pygame.draw.rect(self.screen, (60, 40, 30), panel_rect, border_radius=16)
+            pygame.draw.rect(self.screen, (200, 170, 120), panel_rect, width=3, border_radius=16)
+
+            title = self.font_large.render("AYARLAR", True, YELLOW)
+            title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, panel_rect.y + 40))
+            self.screen.blit(title, title_rect)
+
+            music_label = self.font_small.render("Müzik:", True, WHITE)
+            music_value = self.font_small.render("AÇIK" if music_on else "KAPALI", True, YELLOW)
+            self.screen.blit(music_label, (panel_rect.x + 40, panel_rect.y + 90))
+            self.screen.blit(music_value, (panel_rect.x + 180, panel_rect.y + 90))
+
+            sfx_label = self.font_small.render("Ses Efektleri:", True, WHITE)
+            sfx_value = self.font_small.render("AÇIK" if sfx_on else "KAPALI", True, YELLOW)
+            self.screen.blit(sfx_label, (panel_rect.x + 40, panel_rect.y + 130))
+            self.screen.blit(sfx_value, (panel_rect.x + 180, panel_rect.y + 130))
+
+            mode_label = self.font_small.render("Oyun Modu:", True, WHITE)
+            mode_value = self.font_small.render(modes[mode_index], True, YELLOW)
+            self.screen.blit(mode_label, (panel_rect.x + 40, panel_rect.y + 170))
+            self.screen.blit(mode_value, (panel_rect.x + 180, panel_rect.y + 170))
+
+            name_label = self.font_small.render("İsim:", True, WHITE)
+            self.screen.blit(name_label, (panel_rect.x + 40, panel_rect.y + 210))
+            name_rect = pygame.Rect(panel_rect.x + 120, panel_rect.y + 205, 260, 35)
+            pygame.draw.rect(self.screen, (80, 80, 80), name_rect, border_radius=6)
+            border_color = YELLOW if active_field == "name" else WHITE
+            pygame.draw.rect(self.screen, border_color, name_rect, width=2, border_radius=6)
+            name_surf = self.font_small.render(name_text or "İsminiz...", True, (230, 230, 230))
+            self.screen.blit(name_surf, (name_rect.x + 8, name_rect.y + 8))
+
+            hint = self.font_small.render("Kapatmak için ESC / Enter veya pencere dışına tıkla", True, WHITE)
+            hint_rect = hint.get_rect(center=(SCREEN_WIDTH // 2, panel_rect.bottom + 25))
+            self.screen.blit(hint, hint_rect)
+
+            pygame.display.flip()
+            self.clock.tick(60)
+
+        # Apply changes
+        self.player_name = name_text or "Player"
+        self.music_enabled = music_on
+        self.sfx_enabled = sfx_on
+        self.game_mode = modes[mode_index]
+        self.apply_game_mode_difficulty()
+        try:
+            self.update_background_music()
+        except Exception:
+            pass
+        if hasattr(self, "save_settings"):
+            self.save_settings()
     
     def draw_title_screen(self):
-        """Draw the title/loading screen"""
-        # Draw wooden background
-        self.screen.blit(self.wood_texture, (0, 0))
-        
-        # Draw title "Fruit Ninja"
-        title_text = self.font_title.render("Fruit Ninja", True, WHITE)
-        title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 100))
-        
-        # Draw shadow for title
-        shadow_offset = 3
-        shadow_text = self.font_title.render("Fruit Ninja", True, BLACK)
-        self.screen.blit(shadow_text, (title_rect.x + shadow_offset, title_rect.y + shadow_offset))
-        self.screen.blit(title_text, title_rect)
-        
-        # Draw subtitle "İkbal and Esmanur"
-        subtitle_text = self.font_subtitle.render("İkbal and Esmanur", True, YELLOW)
-        subtitle_rect = subtitle_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50))
-        
-        # Draw shadow for subtitle
-        shadow_subtitle = self.font_subtitle.render("İkbal and Esmanur", True, BLACK)
-        self.screen.blit(shadow_subtitle, (subtitle_rect.x + shadow_offset, subtitle_rect.y + shadow_offset))
-        self.screen.blit(subtitle_text, subtitle_rect)
-        
-        # Draw instruction
-        instruction_text = self.font_small.render("Keserek başla!", True, WHITE)
-        instruction_rect = instruction_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 150))
-        self.screen.blit(instruction_text, instruction_rect)
-        
-        # Draw swipe path if swiping
-        if len(self.swipe_path) > 1:
-            self.draw_swipe_path(self.screen, self.swipe_path)
+        """(Deprecated) Old title screen - no longer used."""
+        pass
     
     def draw_game_over(self):
         """Draw game over screen"""
@@ -1455,11 +1629,11 @@ class FruitNinja:
             font = pygame.font.Font(None, font_size)
             x_text = font.render("X", True, color)
             self.screen.blit(x_text, (x_pos, y_center - x_text.get_height() // 2))
-
+    
         # Decrease life-loss timer
         if self.life_loss_timer > 0:
             self.life_loss_timer -= 1
-
+    
     def run(self):
         while self.running:
             self.handle_events()
@@ -1485,11 +1659,11 @@ class MenuScreen:
         self.swiping = False
         self.watermelon_sliced = False  # Track if watermelon was sliced
 
-        # Fonts
-        self.title_font = pygame.font.Font(None, 72)
-        self.ninja_font = pygame.font.Font(None, 72)
-        self.button_font = pygame.font.Font(None, 24)
-        self.instruction_font = pygame.font.Font(None, 20)
+        # Fonts (bigger, more stylish for the hero area)
+        self.title_font = pygame.font.Font(None, 120)
+        self.ninja_font = pygame.font.Font(None, 130)
+        self.button_font = pygame.font.Font(None, 28)
+        self.instruction_font = pygame.font.Font(None, 26)
         # Extra fonts for settings text
         self.font_medium = pygame.font.Font(None, 32)
         self.font_small = pygame.font.Font(None, 22)
@@ -1507,58 +1681,65 @@ class MenuScreen:
         self.sign_text_color = (69, 39, 19)  # Dark brown for text
 
     def draw_colored_title(self):
-        """Draw FRUIT NINJA title with colorful letters"""
-        # FRUIT letters with colors
+        """Draw FRUIT NINJA title with centered bold letters and brush stroke"""
         fruit_letters = [
-            ("F", (148, 0, 211)),  # Purple
-            ("R", (255, 0, 0)),    # Red
-            ("U", (255, 165, 0)),  # Orange
-            ("I", (255, 255, 0)),  # Yellow
-            ("T", (0, 255, 0)),    # Green
+            ("F", (170, 64, 255)),
+            ("R", (255, 85, 85)),
+            ("U", (255, 180, 57)),
+            ("I", (255, 238, 88)),
+            ("T", (57, 255, 128)),
         ]
-        
-        # NINJA letters (silver/metallic)
         ninja_letters = ["N", "I", "N", "J", "A"]
-        ninja_color = (192, 192, 192)  # Silver
+        metallic_colors = [(200, 200, 200), (230, 230, 230), (210, 210, 210), (255, 255, 255), (200, 200, 200)]
         
-        # Draw FRUIT
-        x_start = 100
-        y_pos = 80
-        letter_spacing = 50
+        # Brush-stroke background behind the title
+        brush_height = 150
+        brush_surface = pygame.Surface((SCREEN_WIDTH, brush_height), pygame.SRCALPHA)
+        pygame.draw.rect(brush_surface, (0, 0, 0, 120), brush_surface.get_rect(), border_radius=60)
+        highlight_rect = pygame.Rect(20, 20, SCREEN_WIDTH - 40, brush_height - 40)
+        pygame.draw.rect(brush_surface, (120, 60, 30, 140), highlight_rect, border_radius=40)
+        self.screen.blit(brush_surface, (0, 40))
         
-        for i, (letter, color) in enumerate(fruit_letters):
-            # Create text with shadow for 3D effect
-            text_surf = self.title_font.render(letter, True, color)
-            shadow_surf = self.title_font.render(letter, True, (0, 0, 0))
-            
-            x_pos = x_start + i * letter_spacing
-            # Draw shadow
-            self.screen.blit(shadow_surf, (x_pos + 2, y_pos + 2))
-            # Draw main text
-            self.screen.blit(text_surf, (x_pos, y_pos))
-            
-            # Add leaves to T
+        # Measure widths to center
+        spacing = 6
+        fruit_surfs = [self.title_font.render(letter, True, color) for letter, color in fruit_letters]
+        fruit_width = sum(s.get_width() for s in fruit_surfs) + spacing * (len(fruit_surfs) - 1)
+        ninja_surfs = [
+            self.ninja_font.render(letter, True, metallic_colors[i % len(metallic_colors)])
+            for i, letter in enumerate(ninja_letters)
+        ]
+        ninja_width = sum(s.get_width() for s in ninja_surfs) + spacing * (len(ninja_surfs) - 1)
+        
+        y_fruit = 70
+        y_ninja = y_fruit + self.title_font.get_height() - 10
+        start_x_fruit = (SCREEN_WIDTH - fruit_width - ninja_width - 30) // 2
+        start_x_ninja = start_x_fruit + fruit_width + 30
+        
+        # Draw FRUIT letters with shadows and highlights
+        x = start_x_fruit
+        for idx, (surf, (letter, color)) in enumerate(zip(fruit_surfs, fruit_letters)):
+            shadow = self.title_font.render(letter, True, (0, 0, 0))
+            glow = self.title_font.render(letter, True, (255, 255, 255))
+            self.screen.blit(shadow, (x + 5, y_fruit + 8))
+            self.screen.blit(surf, (x, y_fruit))
+            glow.set_alpha(80)
+            self.screen.blit(glow, (x, y_fruit - 4))
             if letter == "T":
-                # Draw small green leaves on top
-                leaf_y = y_pos - 10
-                pygame.draw.circle(self.screen, (0, 200, 0), (x_pos - 8, leaf_y), 5)
-                pygame.draw.circle(self.screen, (0, 200, 0), (x_pos + 8, leaf_y), 5)
+                leaf_y = y_fruit - 20
+                pygame.draw.circle(self.screen, (0, 200, 0), (x - 6, leaf_y), 6)
+                pygame.draw.circle(self.screen, (0, 200, 0), (x + surf.get_width() + 6, leaf_y + 2), 6)
+            x += surf.get_width() + spacing
         
-        # Draw NINJA
-        x_start_ninja = x_start + len(fruit_letters) * letter_spacing + 30
-        for i, letter in enumerate(ninja_letters):
-            text_surf = self.ninja_font.render(letter, True, ninja_color)
-            shadow_surf = self.ninja_font.render(letter, True, (0, 0, 0))
-            
-            x_pos = x_start_ninja + i * letter_spacing
-            # Draw shadow
-            self.screen.blit(shadow_surf, (x_pos + 2, y_pos + 2))
-            # Draw main text
-            self.screen.blit(text_surf, (x_pos, y_pos))
+        # Draw NINJA letters with metallic effect
+        x = start_x_ninja
+        for surf, letter in zip(ninja_surfs, ninja_letters):
+            shadow = self.ninja_font.render(letter, True, (0, 0, 0))
+            self.screen.blit(shadow, (x + 6, y_ninja + 10))
+            self.screen.blit(surf, (x, y_ninja))
+            x += surf.get_width() + spacing
         
-        # Draw TM symbol
-        tm_surf = pygame.font.Font(None, 20).render("™", True, ninja_color)
-        self.screen.blit(tm_surf, (x_start_ninja + len(ninja_letters) * letter_spacing + 5, y_pos - 5))
+        tm_surf = pygame.font.Font(None, 32).render("™", True, (255, 255, 255))
+        self.screen.blit(tm_surf, (x - 10, y_ninja))
 
     def point_line_distance(self, px, py, x1, y1, x2, y2):
         """Calculate distance from point to line segment"""
@@ -1630,10 +1811,10 @@ class MenuScreen:
     
     def draw_instruction_sign(self):
         """Draw the wooden instruction sign"""
-        sign_x = 50
-        sign_y = 150
-        sign_width = 150
-        sign_height = 60
+        sign_x = 70
+        sign_y = 170
+        sign_width = 190
+        sign_height = 70
         
         # Draw sign background
         pygame.draw.rect(self.screen, self.wood_sign_color, 
@@ -1655,9 +1836,9 @@ class MenuScreen:
             pygame.draw.line(self.screen, nail_color, (cx - nail_size, cy + nail_size), 
                            (cx + nail_size, cy - nail_size), 2)
         
-        # Draw text
-        line1 = self.instruction_font.render("TAP FRUIT", True, self.sign_text_color)
-        line2 = self.instruction_font.render("TO BEGIN", True, self.sign_text_color)
+        # Draw text (similar meaning to TAP FRUIT TO BEGIN)
+        line1 = self.instruction_font.render("MEYVEYI KES", True, self.sign_text_color)
+        line2 = self.instruction_font.render("BASLAMAK IÇIN", True, self.sign_text_color)
         
         line1_rect = line1.get_rect(center=(sign_x + sign_width // 2, sign_y + sign_height // 2 - 10))
         line2_rect = line2.get_rect(center=(sign_x + sign_width // 2, sign_y + sign_height // 2 + 10))
@@ -1681,48 +1862,43 @@ class MenuScreen:
         # Draw main ring (thick)
         pygame.draw.circle(self.screen, color, center, radius, 8)
         
-        # Draw text around the ring (top and bottom, as in the image)
-        # Text appears twice: once right-side up at top, once upside down at bottom
-        text_no_spaces = text.replace(" ", "")
-        if len(text_no_spaces) > 0:
+        # Draw text around the ring (top and bottom) keeping gaps for spaces
+        characters = list(text.upper())
+        visible_count = max(1, len([c for c in characters if c != " "]))
+        if characters:
             text_radius = radius + 20
-            
+            text_angle_step = 180 / visible_count
             # Draw top arc (right-side up)
-            text_angle_step = 180 / len(text_no_spaces)
-            for i, char in enumerate(text_no_spaces):
-                # Start from left, go to right (top half)
-                angle = math.radians(i * text_angle_step - 90)
-                
-                # Calculate position on circle
+            drawn = 0
+            for char in characters:
+                if char == " ":
+                    drawn += 0.5
+                    continue
+                angle = math.radians(drawn * text_angle_step - 90)
                 text_x = cx + math.cos(angle) * text_radius
                 text_y = cy + math.sin(angle) * text_radius
-                
-                # Render character
-                char_surf = self.button_font.render(char, True, color)
-                
-                # Rotate character to follow circle tangent
+                char_surf = self.button_font.render(char, True, WHITE)
                 rotation_angle = math.degrees(angle) + 90
                 rotated_char = pygame.transform.rotate(char_surf, rotation_angle)
                 char_rect = rotated_char.get_rect(center=(int(text_x), int(text_y)))
                 self.screen.blit(rotated_char, char_rect)
+                drawn += 1
             
-            # Draw bottom arc (upside down - same text)
-            for i, char in enumerate(text_no_spaces):
-                # Start from right, go to left (bottom half)
-                angle = math.radians(180 - i * text_angle_step - 90)
-                
-                # Calculate position on circle
+            # Draw bottom arc (upside down)
+            drawn = 0
+            for char in reversed(characters):
+                if char == " ":
+                    drawn += 0.5
+                    continue
+                angle = math.radians(drawn * text_angle_step - 90)
                 text_x = cx + math.cos(angle) * text_radius
-                text_y = cy + math.sin(angle) * text_radius
-                
-                # Render character (upside down)
-                char_surf = self.button_font.render(char, True, color)
-                
-                # Rotate character to follow circle tangent (upside down)
-                rotation_angle = math.degrees(angle) + 90 + 180
+                text_y = cy - math.sin(angle) * text_radius
+                char_surf = self.button_font.render(char, True, WHITE)
+                rotation_angle = -(math.degrees(angle) + 90)
                 rotated_char = pygame.transform.rotate(char_surf, rotation_angle)
                 char_rect = rotated_char.get_rect(center=(int(text_x), int(text_y)))
                 self.screen.blit(rotated_char, char_rect)
+                drawn += 1
         
         # Draw fruit in center if available
         if fruit_type and fruit_type in self.fruit_images:
@@ -1735,6 +1911,51 @@ class MenuScreen:
                 img_s = pygame.transform.smoothscale(fruit_img, (w, h))
                 img_rect = img_s.get_rect(center=center)
             self.screen.blit(img_s, img_rect)
+
+    def draw_sword_and_watermelon_hero(self):
+        """Draw a decorative sword slash and sliced watermelon on the right side like the reference image."""
+        if "watermelon" not in self.fruit_images:
+            return
+
+        whole = self.fruit_images["watermelon"].get("whole")
+        halves = self.fruit_images["watermelon"].get("halves")
+
+        base_x = SCREEN_WIDTH - 150
+        top_y = 80
+        bottom_y = 190
+
+        # Sword slash (bright curved blade)
+        blade_color = (230, 230, 230)
+        trail_color = (255, 255, 255)
+        sword_surface = pygame.Surface((260, 200), pygame.SRCALPHA)
+        sx0, sy0 = 20, 40
+        sx1, sy1 = 220, 160
+        pygame.draw.line(sword_surface, blade_color, (sx0, sy0), (sx1, sy1), 10)
+        pygame.draw.line(sword_surface, trail_color, (sx0 - 8, sy0 - 6), (sx1 - 8, sy1 - 6), 4)
+        self.screen.blit(sword_surface, (SCREEN_WIDTH - 260, 40))
+
+        # Top whole watermelon
+        if whole:
+            scale = 110 / max(whole.get_width(), whole.get_height())
+            w = int(whole.get_width() * scale)
+            h = int(whole.get_height() * scale)
+            img_s = pygame.transform.smoothscale(whole, (w, h))
+            rect = img_s.get_rect(center=(base_x, top_y))
+            self.screen.blit(img_s, rect)
+
+        # Bottom sliced watermelon (two halves)
+        if halves and len(halves) >= 2:
+            left_half, right_half = halves[0], halves[1]
+            for idx, img in enumerate((left_half, right_half)):
+                scale = 110 / max(img.get_width(), img.get_height())
+                w = int(img.get_width() * scale)
+                h = int(img.get_height() * scale)
+                img_s = pygame.transform.smoothscale(img, (w, h))
+                offset_x = -40 if idx == 0 else 40
+                angle = -20 if idx == 0 else 20
+                rotated = pygame.transform.rotate(img_s, angle)
+                rect = rotated.get_rect(center=(base_x + offset_x, bottom_y))
+                self.screen.blit(rotated, rect)
 
     def run(self):
         """Run the menu screen"""
@@ -1784,9 +2005,10 @@ class MenuScreen:
             # Draw background
             self.screen.blit(self.wood_texture, (0, 0))
 
-            # Draw title
+            # Draw title and right-side hero art (sword + watermelon)
             self.draw_colored_title()
-            
+            self.draw_sword_and_watermelon_hero()
+
             # Draw instruction sign
             self.draw_instruction_sign()
             
@@ -1795,7 +2017,7 @@ class MenuScreen:
                 self.start_button_pos,
                 self.start_button_radius,
                 self.start_color,
-                "TAP HERE TO START",
+                "KES VE BASLA",
                 "watermelon"
             )
             
@@ -1804,7 +2026,7 @@ class MenuScreen:
                 self.settings_button_pos,
                 self.settings_button_radius,
                 self.settings_color,
-                "SETTINGS",
+                "AYARLARA GIT",
                 "kiwi"
             )
             
@@ -1816,7 +2038,7 @@ class MenuScreen:
             self.clock.tick(60)
 
     def show_settings_screen(self):
-        """Settings screen: toggle sound, change name, choose game mode."""
+        """Settings screen: toggle sound, change name, choose game mode (still used for menu, but main game has its own overlay)."""
         in_settings = True
         # Local copies of settings (so user can cancel in future if needed)
         name_text = self.game.player_name
@@ -1985,21 +2207,22 @@ class MenuScreen:
             # Draw background and menu elements
             self.screen.blit(self.wood_texture, (0, 0))
             self.draw_colored_title()
+            self.draw_sword_and_watermelon_hero()
             self.draw_instruction_sign()
-            
-            # Draw buttons
+
+            # Draw buttons with updated ring text
             self.draw_circular_button(
                 self.start_button_pos,
                 self.start_button_radius,
                 self.start_color,
-                "TAP HERE TO START",
+                "KES VE BASLA",
                 "watermelon"
             )
             self.draw_circular_button(
                 self.settings_button_pos,
                 self.settings_button_radius,
                 self.settings_color,
-                "SETTINGS",
+                "AYARLARA GIT",
                 "kiwi"
             )
 
@@ -2024,7 +2247,7 @@ class MenuScreen:
 
             pygame.display.flip()
             self.clock.tick(60)
-            
+
             # Stop early if everything is gone
             if not sliced.is_alive() and len(particles) == 0:
                 break
@@ -2032,13 +2255,11 @@ class MenuScreen:
 if __name__ == "__main__":
     while True:
         game = FruitNinja()
-        menu = MenuScreen(game)
-        selected = menu.run()
-        if selected is None:
-            pygame.quit()
-            sys.exit()
-        print(f"Selected mode: {selected}")
-        if selected == "START":
-            game.show_title_screen = False
+        # Show a short loading screen before starting gameplay
+        try:
+            game.show_loading_screen()
+        except Exception:
+            pass
+        game.show_title_screen = False
         game.run()
-        # Oyun döngüsü bitti (GAME OVER vb.), tekrar menüye dönmek için döngü başa saracak
+        # Oyun döngüsü bitti (GAME OVER vb.), tekrar yükleme + oyuna geçmek için döngü başa saracak
