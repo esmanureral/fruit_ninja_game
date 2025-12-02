@@ -336,6 +336,13 @@ class FruitNinja:
         self.combo = 0
         self.combo_timer = 0
         self.combo_timeout = 120
+        
+        # New Combo System Variables
+        self.combo_count = 0
+        self.last_slice_time = 0
+        self.combo_display_timer = 0
+        self.combo_text_info = None
+        
         self.show_title_screen = True  # Start with title screen
         
         self.swipe_path: List[Tuple[int, int]] = []
@@ -1076,12 +1083,9 @@ class FruitNinja:
         else:
             self.play_sound("slice")
 
-        # Score with combo multiplier
-        combo_multiplier = max(1, self.combo - 1)
-        points = 1 + combo_multiplier
-        self.score += points
-        
-        print(f"💥 Combo: {self.combo}x - Kazanılan puan: {points}")
+        # Basic score increment (1 point per fruit)
+        # Combo bonus is handled in handle_events
+        self.score += 1
         
         if self.score > self.best_score:
             self.best_score = self.score
@@ -1126,6 +1130,7 @@ class FruitNinja:
                             self.show_title_screen = False
                             self.title_sliced = True
                             print("🎮 Oyun başlıyor!")
+                            self.reset_game()
                     
                     if not self.game_over and not self.show_title_screen:
                         # Check for bomb slices (GAME OVER!)
@@ -1137,10 +1142,33 @@ class FruitNinja:
                         
                         # Check for fruit slices
                         fruits_to_remove = []
+                        sliced_this_frame = 0
+                        last_fruit_pos = (0, 0)
+                        
                         for fruit in self.fruits:
                             if self.check_slice(fruit):
                                 self.slice_fruit(fruit)
                                 fruits_to_remove.append(fruit)
+                                sliced_this_frame += 1
+                                last_fruit_pos = (fruit.x, fruit.y)
+                        
+                        if sliced_this_frame > 0:
+                            now = pygame.time.get_ticks()
+                            # If sliced within 300ms of last slice, continue combo
+                            if now - self.last_slice_time < 300:
+                                self.combo_count += sliced_this_frame
+                            else:
+                                self.combo_count = sliced_this_frame
+                            
+                            self.last_slice_time = now
+                            
+                            # Trigger combo if 2 or more fruits sliced in sequence
+                            if self.combo_count >= 2:
+                                bonus_points = self.combo_count
+                                self.score += bonus_points
+                                self.combo_text_info = (self.combo_count, bonus_points, last_fruit_pos[0], last_fruit_pos[1])
+                                self.combo_display_timer = 90  # 1.5 seconds
+                                print(f"🔥 COMBO! {self.combo_count} meyve, +{bonus_points} puan")
                         
                         for fruit in fruits_to_remove:
                             self.fruits.remove(fruit)
@@ -1163,8 +1191,10 @@ class FruitNinja:
         self.swipe_path = []
         self.spawn_timer = 0
         self.bomb_spawn_timer = 0
-        self.combo = 0
-        self.combo_timer = 0
+        self.combo_count = 0
+        self.last_slice_time = 0
+        self.combo_display_timer = 0
+        self.combo_text_info = None  # (count, points, x, y)
         self.life_loss_index = None
         self.life_loss_timer = 0
         # Apply difficulty settings based on current game mode
@@ -1353,16 +1383,36 @@ class FruitNinja:
         # Draw UI elements
         self.draw_ui()
         
-        # Draw combo only if timer is active (combo is still counting)
-        if self.combo > 1 and self.combo_timer > 0:
-            combo_text = self.font_large.render(f"COMBO {self.combo}!", True, YELLOW)
-            combo_rect = combo_text.get_rect(center=(SCREEN_WIDTH // 2, 250))
-            # Add semi-transparent background for better readability
-            bg_rect = combo_rect.inflate(20, 20)
-            bg_surface = pygame.Surface(bg_rect.size, pygame.SRCALPHA)
-            pygame.draw.rect(bg_surface, (0, 0, 0, 150), (0, 0, bg_rect.width, bg_rect.height), border_radius=10)
-            self.screen.blit(bg_surface, bg_rect)
-            self.screen.blit(combo_text, combo_rect)
+        # Draw combo text
+        if self.combo_display_timer > 0 and self.combo_text_info:
+            count, points, x, y = self.combo_text_info
+            self.combo_display_timer -= 1
+            
+            # Clamp position to screen bounds
+            x = max(100, min(SCREEN_WIDTH - 100, x))
+            y = max(100, min(SCREEN_HEIGHT - 100, y))
+            
+            # Draw "3 FRUIT"
+            text1 = self.font_large.render(f"{count} FRUIT", True, (255, 220, 0))
+            # Draw "COMBO"
+            text2 = self.font_large.render("COMBO", True, (255, 220, 0))
+            # Draw "+3"
+            text3 = self.font_title.render(f"+{points}", True, (255, 255, 255))
+            
+            # Floating effect
+            offset_y = -int((90 - self.combo_display_timer) * 0.5)
+            
+            rect1 = text1.get_rect(center=(x, y - 50 + offset_y))
+            rect2 = text2.get_rect(center=(x, y - 10 + offset_y))
+            rect3 = text3.get_rect(center=(x, y + 50 + offset_y))
+            
+            # Draw shadows and text
+            for txt, r in [(text1, rect1), (text2, rect2), (text3, rect3)]:
+                # Simple shadow by drawing black text offset
+                shadow = txt.copy()
+                shadow.fill((0, 0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+                self.screen.blit(shadow, (r.x + 3, r.y + 3))
+                self.screen.blit(txt, r)
         
         # Draw game over screen
         if self.game_over:
@@ -1809,13 +1859,21 @@ class FruitNinja:
         # Show score in star badge
         self.draw_star_badge(self.screen, star_x, star_y, star_size, self.score)
         
-        # Draw player name below star (closer to star, right below it)
-        name_text = self.font_small.render(f"{self.player_name}", True, BLACK)
+        # Draw player name below star
+        name_text = self.font_small.render(f"{self.player_name}", True, (255, 255, 255))
+        name_shadow = self.font_small.render(f"{self.player_name}", True, (0, 0, 0))
+        self.screen.blit(name_shadow, (score_section_x + 1, score_section_y + star_size + 6))
         self.screen.blit(name_text, (score_section_x, score_section_y + star_size + 5))
+        
+        # Draw best score below name
+        best_text = self.font_small.render(f"En İyi: {self.best_score}", True, (255, 220, 0))
+        best_shadow = self.font_small.render(f"En İyi: {self.best_score}", True, (0, 0, 0))
+        self.screen.blit(best_shadow, (score_section_x + 1, score_section_y + star_size + 26))
+        self.screen.blit(best_text, (score_section_x, score_section_y + star_size + 25))
         
         # Draw lives on top right
         x_start = SCREEN_WIDTH - 30
-        y_center = TOP_BAR_HEIGHT // 2
+        y_center = (TOP_BAR_HEIGHT // 2) + 20  # Shift down by 20px
         for i in range(MAX_LIVES):
             x_pos = x_start - (i * 35)
             if i < (MAX_LIVES - self.lives):

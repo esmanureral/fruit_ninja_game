@@ -1,6 +1,6 @@
 {
-  "player_name": "esmanur",
+  "player_name": "ll",
   "music_enabled": false,
-  "sfx_enabled": false,
-  "game_mode": "Kolay"
+  "sfx_enabled": true,
+  "game_mode": "Orta"
 }
