@@ -316,6 +316,49 @@ class Particle:
     def is_alive(self):
         return self.life > 0
 
+class Splash:
+    def __init__(self, x, y, color):
+        self.x = x
+        self.y = y
+        self.color = color
+        self.life = 180  # 3 seconds at 60 FPS
+        self.max_life = 180
+        self.image = self.create_splash_surface(color)
+        
+    def create_splash_surface(self, color):
+        size = 150  # Larger splash
+        surf = pygame.Surface((size, size), pygame.SRCALPHA)
+        center = (size//2, size//2)
+        
+        # Main blob
+        pygame.draw.circle(surf, color, center, size//4)
+        
+        # Random droplets/splatters around
+        for _ in range(15):
+            angle = random.uniform(0, 6.28)
+            dist = random.uniform(size//5, size//2.2)
+            r = random.uniform(8, 20)
+            dx = int(math.cos(angle) * dist)
+            dy = int(math.sin(angle) * dist)
+            pygame.draw.circle(surf, color, (center[0]+dx, center[1]+dy), int(r))
+            
+        return surf
+
+    def update(self):
+        self.life -= 1
+
+    def draw(self, screen):
+        if self.life > 0:
+            # Make it more faint/realistic by reducing max alpha (160 instead of 255)
+            max_alpha = 160
+            alpha = int(max_alpha * (self.life / self.max_life))
+            self.image.set_alpha(alpha)
+            rect = self.image.get_rect(center=(self.x, self.y))
+            screen.blit(self.image, rect)
+            
+    def is_alive(self):
+        return self.life > 0
+
 class FruitNinja:
     def __init__(self):
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -327,6 +370,7 @@ class FruitNinja:
         self.bombs: List[Bomb] = []
         self.sliced_fruits: List[SlicedFruit] = []
         self.particles: List[Particle] = []
+        self.splashes = []  # List for paint splashes
         self.score = 0
         self.best_score = 0
         self.lives = MAX_LIVES
@@ -978,7 +1022,23 @@ class FruitNinja:
             # Optional pre-cut halves
             half_images = info.get("halves")
         
-        fruit = Fruit(x, y, fruit_type, whole_img, sliced_img, half_images=half_images)
+        # Fruit colors for splash effect
+        fruit_colors = {
+            "apple": (200, 50, 50),
+            "banana": (255, 255, 100),
+            "basaha": (200, 100, 50),
+            "coconut": (240, 240, 240),
+            "kiwi": (100, 200, 50),
+            "lemon": (255, 255, 0),
+            "orange": (255, 165, 0),
+            "peach": (255, 200, 150),
+            "pineapple": (255, 220, 50),
+            "watermelon": (200, 50, 50),
+            "strawberry": (220, 20, 60),
+        }
+        color = fruit_colors.get(fruit_type, (255, 0, 0))
+        
+        fruit = Fruit(x, y, fruit_type, whole_img, sliced_img, color=color, half_images=half_images)
         fruit.vx = vx
         fruit.vy = vy
         self.fruits.append(fruit)
@@ -1065,6 +1125,9 @@ class FruitNinja:
         # Create particles (will appear behind sliced fruit) - reduced amount
         for _ in range(5):  # 15'ten 5'e düşürüldü
             self.particles.append(Particle(fruit.x, fruit.y, fruit.color))
+        
+        # Create splash effect
+        self.splashes.append(Splash(fruit.x, fruit.y, fruit.color))
         
         # Create yellow fragments (half circles) - reduced amount
         for _ in range(1):  # 3'ten 1'e düşürüldü
@@ -1232,42 +1295,51 @@ class FruitNinja:
         
         return False
     
-    def draw_swipe_path(self, screen, path, color=WHITE):
-        """Draw the swipe as a sword image following the last swipe segment."""
+    def draw_swipe_path(self, screen, path, color=(255, 255, 255)):
+        """Draw a glowing neon swipe trail"""
         if len(path) < 2:
             return
 
-        # Still draw a faint light trail for speed feeling
-        for i in range(len(path) - 1):
-            x1, y1 = path[i]
-            x2, y2 = path[i + 1]
-            trail_color = (255, 255, 255, 80)
-            trail_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-            pygame.draw.line(trail_surface, trail_color, (x1, y1), (x2, y2), 3)
-            screen.blit(trail_surface, (0, 0))
+        # Limit points for performance and visual style
+        points = path[-12:]
+        if len(points) < 2:
+            return
 
-        # Use sword sprite at the end of the path (if available)
-        if self.sword_image is not None:
-            x1, y1 = path[-2]
-            x2, y2 = path[-1]
-            dx = x2 - x1
-            dy = y2 - y1
-            angle = -math.degrees(math.atan2(dy, dx))
-
-            # Scale sword image to reasonable size
-            base_len = 220
-            scale = base_len / max(self.sword_image.get_width(), 1)
-            w = int(self.sword_image.get_width() * scale)
-            h = int(self.sword_image.get_height() * scale)
-            sword = pygame.transform.smoothscale(self.sword_image, (w, h))
-            sword = pygame.transform.rotate(sword, angle)
-            rect = sword.get_rect(center=(x2, y2))
-            screen.blit(sword, rect)
-        else:
-            # Fallback: simple bright line
-            x1, y1 = path[-2]
-            x2, y2 = path[-1]
-            pygame.draw.line(screen, color, (x1, y1), (x2, y2), 4)
+        # Use a temporary surface for alpha blending
+        trail_surf = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        
+        # Glow color (Cyan/Blue)
+        glow_color = (0, 255, 255, 120)  # Semi-transparent cyan
+        core_color = (255, 255, 255, 255) # Solid white
+        
+        for i in range(len(points) - 1):
+            p1 = points[i]
+            p2 = points[i+1]
+            
+            # Progress factor (0.0 to 1.0)
+            factor = i / (len(points) - 1)
+            
+            # Dynamic thickness
+            core_width = int(10 * factor)
+            glow_width = int(30 * factor)
+            
+            if core_width < 1: core_width = 1
+            
+            # Draw glow
+            pygame.draw.line(trail_surf, glow_color, p1, p2, glow_width)
+            pygame.draw.circle(trail_surf, glow_color, p1, glow_width // 2)
+            
+            # Draw core
+            pygame.draw.line(trail_surf, core_color, p1, p2, core_width)
+            pygame.draw.circle(trail_surf, core_color, p1, core_width // 2)
+            
+        # Draw head cap
+        last_p = points[-1]
+        pygame.draw.circle(trail_surf, glow_color, last_p, 15)
+        pygame.draw.circle(trail_surf, core_color, last_p, 5)
+        
+        # Blit trail to screen
+        screen.blit(trail_surf, (0, 0))
     
     def update(self):
         if self.show_title_screen:
@@ -1343,6 +1415,11 @@ class FruitNinja:
         
         # Remove dead particles
         self.particles = [p for p in self.particles if p.is_alive()]
+        
+        # Update splashes
+        for splash in self.splashes:
+            splash.update()
+        self.splashes = [s for s in self.splashes if s.is_alive()]
     
     def draw(self):
         # Draw title screen if showing
@@ -1353,6 +1430,10 @@ class FruitNinja:
         
         # Full-screen wood background (no separate top/bottom bars)
         self.screen.blit(self.wood_texture, (0, 0))
+        
+        # Draw splashes (on background, behind fruits)
+        for splash in self.splashes:
+            splash.draw(self.screen)
         
         # Draw fruits
         for fruit in self.fruits:
